@@ -1125,9 +1125,9 @@ jobs:
             for attempt in 1 2 3; do
               # The full Android manifest also contains unrelated Trusty,
               # virtual-device, Rust and NDK projects that are unavailable from
-              # this runner.  The GKI build below consumes only common/; the
-              # required build tools are downloaded separately above.
-              if $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast common; then
+              # this runner.  The GKI build consumes common/ plus the Kleaf
+              # metadata in build/; required host tools are downloaded above.
+              if $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast common build; then
                 return 0
               fi
               echo "::warning::GKI repo sync failed (attempt ${attempt}/3); retrying"
