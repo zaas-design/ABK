@@ -1106,7 +1106,13 @@ jobs:
             return 1
           }
 
-          REMOTE_BRANCH=$(retry_git_ls_remote https://android.googlesource.com/kernel/common "$FORMATTED_BRANCH")
+          # android.googlesource.com is intermittently unreachable from GitHub-hosted
+          # runners.  Keep the AOSP manifest, but redirect only kernel/common to its
+          # matching public mirror so the rest of the source tree uses the normal remotes.
+          KERNEL_COMMON_AOSP=https://android.googlesource.com/kernel/common
+          KERNEL_COMMON_MIRROR=https://github.com/aosp-mirror/kernel_common.git
+          git config --global url."$KERNEL_COMMON_MIRROR".insteadOf "$KERNEL_COMMON_AOSP"
+          REMOTE_BRANCH=$(retry_git_ls_remote "$KERNEL_COMMON_MIRROR" "$FORMATTED_BRANCH")
           DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
 
           if grep -q deprecated <<< $REMOTE_BRANCH; then
