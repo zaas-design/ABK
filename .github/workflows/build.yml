@@ -1123,7 +1123,11 @@ jobs:
           repo_sync_retry() {
             local attempt
             for attempt in 1 2 3; do
-              if $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast; then
+              # The full Android manifest also contains unrelated Trusty,
+              # virtual-device, Rust and NDK projects that are unavailable from
+              # this runner.  The GKI build below consumes only common/; the
+              # required build tools are downloaded separately above.
+              if $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast common; then
                 return 0
               fi
               echo "::warning::GKI repo sync failed (attempt ${attempt}/3); retrying"
