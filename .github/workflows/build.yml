@@ -1125,10 +1125,38 @@ jobs:
               # virtual-device, Rust and NDK projects that are unavailable from
               # this runner.  The GKI build consumes common/ plus the Kleaf
               # metadata in build/kernel/; the manifest project name is
-              # kernel/build, so sync it by its path. Kleaf requires both
-              # platform/prebuilts/build-tools for py3-cmd and
-              # kernel/prebuilts/build-tools for the Bazel binary.
-              if $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast common build/kernel prebuilts/build-tools prebuilts/kernel-build-tools; then
+              # kernel/build, so sync it by its path. Kleaf requires its host
+              # tools, local Bazel registry/rules, hermetic clang toolchain,
+              # and the small set of local libraries declared by its module.
+              if $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast \
+                common \
+                build/kernel \
+                prebuilts/build-tools \
+                prebuilts/kernel-build-tools \
+                prebuilts/clang/host/linux-x86 \
+                prebuilts/clang-tools \
+                prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.17-4.8 \
+                prebuilts/rust \
+                prebuilts/ndk-r26 \
+                prebuilts/jdk/jdk11 \
+                external/bazelbuild-bazel-central-registry \
+                external/bazel-contrib-bazel_features \
+                external/bazel-skylib \
+                external/bazelbuild-platforms \
+                external/bazelbuild-rules_cc \
+                external/bazelbuild-rules_license \
+                external/bazelbuild-rules_pkg \
+                external/bazelbuild-rules_python \
+                external/bazelbuild-rules_rust \
+                external/bazelbuild-rules_shell \
+                external/python/absl-py \
+                external/libcap \
+                external/libcap-ng \
+                external/lz4 \
+                external/pigz \
+                external/toybox \
+                external/zlib \
+                external/zopfli; then
                 return 0
               fi
               echo "::warning::GKI repo sync failed (attempt ${attempt}/3); retrying"
