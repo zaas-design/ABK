@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -55,6 +56,34 @@ def avb_command(avbtool: Path, args: list[str]) -> list[str]:
     return [str(avbtool), *args]
 
 
+def stock_avb_arguments(avbtool: Path, stock_path: Path) -> list[str]:
+    result = subprocess.run(
+        avb_command(avbtool, ["info_image", "--image", str(stock_path)]),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    output = result.stdout
+    rollback = re.search(r"^Rollback Index:\s*(\d+)$", output, re.MULTILINE)
+    rollback_location = re.search(r"^Rollback Index Location:\s*(\d+)$", output, re.MULTILINE)
+    require(rollback is not None, "stock boot: AVB rollback index is missing")
+    require(rollback_location is not None, "stock boot: AVB rollback index location is missing")
+
+    avb_args = [
+        "--rollback_index",
+        rollback.group(1),
+        "--rollback_index_location",
+        rollback_location.group(1),
+    ]
+    for line in output.splitlines():
+        line = line.strip()
+        if not line.startswith("Prop: ") or " -> '" not in line or not line.endswith("'"):
+            continue
+        key, value = line[6:].split(" -> '", 1)
+        avb_args.extend(["--prop", f"{key}:{value[:-1]}"])
+    return avb_args
+
+
 def pack(args: argparse.Namespace) -> None:
     stock_path = Path(args.stock_boot).resolve()
     kernel_boot_path = Path(args.kernel_boot).resolve()
@@ -70,6 +99,7 @@ def pack(args: argparse.Namespace) -> None:
     require(kernel_boot_path != output_path, "output must not overwrite the kernel input")
     require(avbtool_path.is_file(), f"avbtool not found: {avbtool_path}")
     require(key_path.is_file(), f"AVB key not found: {key_path}")
+    stock_avb_args = stock_avb_arguments(avbtool_path, stock_path)
 
     stock_kernel_size = u32(stock, KERNEL_SIZE_OFFSET)
     stock_ramdisk_size = u32(stock, RAMDISK_SIZE_OFFSET)
@@ -109,6 +139,7 @@ def pack(args: argparse.Namespace) -> None:
                 args.algorithm,
                 "--key",
                 str(key_path),
+                *stock_avb_args,
             ],
         )
         subprocess.run(command, check=True)
