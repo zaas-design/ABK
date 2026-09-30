@@ -6621,19 +6621,34 @@ jobs:
         if: inputs.source_mode != 'custom_git' && (inputs.android_version == 'android13' || inputs.android_version == 'android14' || inputs.android_version == 'android15' || inputs.android_version == 'android16')
         working-directory: bootimgs
         run: |
+          BOOT_PARTITION_SIZE_MB=64
+          if [ "${{ inputs.version }}" = "TB323FU" ]; then
+            # TB323FU boot_a/boot_b are 96 MiB in the stock rawprogram4.xml.
+            BOOT_PARTITION_SIZE_MB=96
+          fi
+
           gzip -n -k -f -9 ./Image > ./Image.gz
 
           $MKBOOTIMG --header_version 4 --kernel Image --output boot.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((BOOT_PARTITION_SIZE_MB * 1024 * 1024)) --image boot.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
           cp ./boot.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot.img
 
           $MKBOOTIMG --header_version 4 --kernel Image.gz --output boot-gz.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((BOOT_PARTITION_SIZE_MB * 1024 * 1024)) --image boot-gz.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
           cp ./boot-gz.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-gz.img
 
           $MKBOOTIMG --header_version 4 --kernel Image.lz4 --output boot-lz4.img
-          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
+          $AVBTOOL add_hash_footer --partition_name boot --partition_size $((BOOT_PARTITION_SIZE_MB * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
           cp ./boot-lz4.img ../${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-boot-lz4.img
+
+          expected_size=$((BOOT_PARTITION_SIZE_MB * 1024 * 1024))
+          for image in boot.img boot-gz.img boot-lz4.img; do
+            actual_size=$(stat -c '%s' "$image")
+            if [ "$actual_size" -ne "$expected_size" ]; then
+              echo "::error::$image size is $actual_size bytes; expected $expected_size bytes"
+              exit 1
+            fi
+          done
 
       - name: 打包签名内核 Bundle
         env:
