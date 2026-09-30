@@ -1127,9 +1127,9 @@ jobs:
               # virtual-device, Rust and NDK projects that are unavailable from
               # this runner.  The GKI build consumes common/ plus the Kleaf
               # metadata in build/kernel/; the manifest project name is
-              # kernel/build, so sync it by its path. Required host tools are
-              # downloaded above.
-              if $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast common build/kernel; then
+              # kernel/build, so sync it by its path. Kleaf's bazel wrapper
+              # also requires platform/prebuilts/build-tools for py3-cmd.
+              if $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast common build/kernel prebuilts/build-tools; then
                 return 0
               fi
               echo "::warning::GKI repo sync failed (attempt ${attempt}/3); retrying"
