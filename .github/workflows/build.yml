@@ -1139,6 +1139,7 @@ jobs:
                 prebuilts/rust \
                 prebuilts/ndk-r26 \
                 prebuilts/jdk/jdk11 \
+                tools/mkbootimg \
                 external/bazelbuild-bazel-central-registry \
                 external/bazel-contrib-bazel_features \
                 external/bazel-skylib \
