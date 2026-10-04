@@ -77,6 +77,11 @@ on:
         description: "自定义版本名 (可选)"
         required: false
         type: string
+      kernel_localversion_override:
+        description: "内核 release 后缀覆盖（例如 -android16-5-maybe-dirty-4k；留空=按版本名/源码默认）"
+        required: false
+        type: string
+        default: ""
       build_time:
         description: "自定义构建时间 (可选，N或留空=当前UTC)"
         required: false
@@ -189,6 +194,7 @@ jobs:
       ksu_branch: ${{ inputs.kernelsu_branch }}
       custom_ref: ${{ inputs.custom_ref || '' }}
       version: ${{ inputs.version || '' }}
+      kernel_localversion_override: ${{ inputs.kernel_localversion_override || '' }}
       build_time: ${{ inputs.build_time || '' }}
       use_zram: ${{ inputs.use_zram }}
       use_bbg: ${{ inputs.use_bbg }}

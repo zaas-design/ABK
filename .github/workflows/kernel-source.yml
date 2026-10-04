@@ -26,11 +26,6 @@ on:
         type: string
         default: |-
           gki_defconfig
-      device_label:
-        description: "设备名称或代号（仅写入产物 manifest）"
-        required: false
-        type: string
-        default: ""
       version_overrides:
         description: "版本元数据覆盖（JSON）：os_patch_level=AOSP manifest 补丁月份 YYYY-MM（必填）；kernel_version_override=内核版本 X.Y/X.Y.Z（留空=从源码 Makefile 自动检测）"
         required: true
@@ -55,6 +50,11 @@ on:
         default: ""
       version:
         description: "自定义内核版本后缀"
+        required: false
+        type: string
+        default: ""
+      kernel_localversion_override:
+        description: "内核 release 后缀覆盖（留空=按版本名/源码默认）"
         required: false
         type: string
         default: ""
@@ -158,7 +158,7 @@ jobs:
           SOURCE_REF: ${{ inputs.source_ref }}
           SOURCE_PRIVATE: ${{ inputs.source_private }}
           SOURCE_DEFCONFIGS: ${{ inputs.defconfigs }}
-          SOURCE_DEVICE_LABEL: ${{ inputs.device_label }}
+          SOURCE_DEVICE_LABEL: ${{ inputs.version }}
           KERNEL_VERSION_OVERRIDE: ${{ fromJSON(inputs.version_overrides).kernel_version_override }}
           OS_PATCH_LEVEL: ${{ fromJSON(inputs.version_overrides).os_patch_level }}
         run: |
@@ -239,7 +239,7 @@ jobs:
           git config --global --unset-all http.https://github.com/.extraheader || true
 
   build:
-    name: "${{ needs.preflight.outputs.full_kernel_version }}-${{ inputs.device_label || 'custom-source' }}"
+    name: "${{ needs.preflight.outputs.full_kernel_version }}-${{ inputs.version || 'custom-source' }}"
     needs: preflight
     uses: ./.github/workflows/build.yml
     secrets: inherit
@@ -250,7 +250,7 @@ jobs:
       source_private: ${{ inputs.source_private }}
       source_commit: ${{ needs.preflight.outputs.source_commit }}
       source_defconfigs: ${{ inputs.defconfigs }}
-      source_device_label: ${{ inputs.device_label }}
+      source_device_label: ${{ inputs.version }}
       kernel_version_override: ${{ fromJSON(inputs.version_overrides).kernel_version_override }}
       source_kernel_version: ${{ needs.preflight.outputs.kernel_version }}
       source_full_kernel_version: ${{ needs.preflight.outputs.full_kernel_version }}
@@ -264,6 +264,7 @@ jobs:
       ksu_branch: ${{ inputs.kernelsu_branch }}
       custom_ref: ${{ inputs.custom_ref }}
       version: ${{ inputs.version }}
+      kernel_localversion_override: ${{ inputs.kernel_localversion_override }}
       build_time: ${{ inputs.build_time }}
       virtualization_support: ${{ inputs.virtualization_support }}
       use_zram: ${{ inputs.use_zram }}
