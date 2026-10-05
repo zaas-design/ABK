@@ -1341,6 +1341,9 @@ jobs:
                 if grep -qE '(^|[[:space:]])subdir-y[[:space:]]*\+=[[:space:]]*oplus([[:space:]]|$)' "$dt_makefile"; then
                   echo "::error::stale absent Oplus DT subdirectory remains in $dt_makefile"; exit 1;
                 fi
+                if [ -d "$KERNEL_ROOT/qcom/opensource/devicetree/qcom" ] && ! grep -qE '^[[:space:]]*subdir-y[[:space:]]*\+=[[:space:]]*qcom([[:space:]]|$)' "$dt_makefile"; then
+                  echo "::error::available qcom DT directory is not enabled in $dt_makefile"; exit 1;
+                fi
                 if grep -qE '"oplus/(Makefile|\*\*/\*\.(dtsi|dts|dtso))"' "$dt_build"; then
                   echo "::error::stale absent Oplus DT sources remain in $dt_build"; exit 1;
                 fi
