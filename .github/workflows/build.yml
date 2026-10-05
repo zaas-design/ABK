@@ -1118,13 +1118,18 @@ jobs:
             return 1
           }
 
-          # android.googlesource.com is intermittently unreachable from GitHub-hosted
-          # runners. Keep the AOSP manifest, but redirect only kernel/common to its
-          # matching public mirror so the rest of the source tree uses the normal remotes.
-          KERNEL_COMMON_AOSP=https://android.googlesource.com/kernel/common
-          KERNEL_COMMON_MIRROR=https://github.com/aosp-mirror/kernel_common.git
-          git config --global url."$KERNEL_COMMON_MIRROR".insteadOf "$KERNEL_COMMON_AOSP"
-          REMOTE_BRANCH=$(retry_git_ls_remote "$KERNEL_COMMON_MIRROR" "$FORMATTED_BRANCH")
+          # A kernel_platform source supplies its own common/ checkout. Do not fetch
+          # the large AOSP kernel/common project in that mode; the donor is copied
+          # into KERNEL_ROOT below. The old GitHub mirror did not carry the required
+          # android16-6.12 branches and made every platform build fail deterministically.
+          git config --global http.version HTTP/1.1
+          git config --global http.lowSpeedLimit 1000
+          git config --global http.lowSpeedTime 120
+          if [ "$SOURCE_MODE" = "custom_git" ]; then
+            REMOTE_BRANCH=""
+          else
+            REMOTE_BRANCH=$(retry_git_ls_remote "https://android.googlesource.com/kernel/common" "$FORMATTED_BRANCH")
+          fi
           DEFAULT_MANIFEST_PATH=.repo/manifests/default.xml
 
           if grep -q deprecated <<< $REMOTE_BRANCH; then
@@ -1135,39 +1140,44 @@ jobs:
           repo_sync_retry() {
             local attempt
             for attempt in 1 2 3; do
+              local sync_projects=(
+                build/kernel
+                prebuilts/build-tools
+                prebuilts/kernel-build-tools
+                prebuilts/clang/host/linux-x86
+                prebuilts/clang-tools
+                prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.17-4.8
+                prebuilts/rust
+                prebuilts/ndk-r26
+                prebuilts/jdk/jdk11
+                tools/mkbootimg
+                external/bazelbuild-bazel-central-registry
+                external/bazel-contrib-bazel_features
+                external/bazel-skylib
+                external/bazelbuild-platforms
+                external/bazelbuild-rules_cc
+                external/bazelbuild-rules_license
+                external/bazelbuild-rules_pkg
+                external/bazelbuild-rules_python
+                external/bazelbuild-rules_rust
+                external/bazelbuild-rules_shell
+                external/python/absl-py
+                external/libcap
+                external/libcap-ng
+                external/lz4
+                external/pigz
+                external/toybox
+                external/zlib
+                external/zopfli
+              )
+              if [ "$SOURCE_MODE" != "custom_git" ]; then
+                sync_projects=(common "${sync_projects[@]}")
+              fi
               # The full Android manifest contains unrelated projects unavailable from
               # this runner. The GKI build consumes common/ plus Kleaf metadata and its
               # explicit local dependencies.
               if $REPO --trace sync -c -j2 --retry-fetches=5 --no-tags --fail-fast \
-                common \
-                build/kernel \
-                prebuilts/build-tools \
-                prebuilts/kernel-build-tools \
-                prebuilts/clang/host/linux-x86 \
-                prebuilts/clang-tools \
-                prebuilts/gcc/linux-x86/host/x86_64-linux-glibc2.17-4.8 \
-                prebuilts/rust \
-                prebuilts/ndk-r26 \
-                prebuilts/jdk/jdk11 \
-                tools/mkbootimg \
-                external/bazelbuild-bazel-central-registry \
-                external/bazel-contrib-bazel_features \
-                external/bazel-skylib \
-                external/bazelbuild-platforms \
-                external/bazelbuild-rules_cc \
-                external/bazelbuild-rules_license \
-                external/bazelbuild-rules_pkg \
-                external/bazelbuild-rules_python \
-                external/bazelbuild-rules_rust \
-                external/bazelbuild-rules_shell \
-                external/python/absl-py \
-                external/libcap \
-                external/libcap-ng \
-                external/lz4 \
-                external/pigz \
-                external/toybox \
-                external/zlib \
-                external/zopfli; then
+                "${sync_projects[@]}"; then
                 return 0
               fi
               echo "::warning::GKI repo sync failed (attempt ${attempt}/3); retrying"
