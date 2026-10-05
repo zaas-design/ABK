@@ -1242,6 +1242,45 @@ jobs:
                 rm -rf "$KERNEL_ROOT/../vendor"
                 cp -a "$source_checkout/vendor" "$KERNEL_ROOT/../vendor"
               fi
+              # This donor keeps Qualcomm device-tree sources under
+              # qcom/opensource/devicetree, while its downstream Oplus helper
+              # still points at the vendor/ tree used by another checkout.
+              # Normalize that label before Bazel analysis and fail early if the
+              # actual Canoe DT package is not present.
+              dt_extensions="$KERNEL_ROOT/soc-repo/kleaf-scripts/msm_kernel_extensions.bzl"
+              dt_build="$KERNEL_ROOT/qcom/opensource/devicetree/BUILD.bazel"
+              dt_map="$KERNEL_ROOT/qcom/opensource/devicetree/qcom/platform_map.bzl"
+              [ -f "$dt_extensions" ] || {
+                echo "::error::missing Canoe Kleaf DT extensions: $dt_extensions"; exit 1;
+              }
+              [ -f "$dt_build" ] || {
+                echo "::error::missing Qualcomm DT BUILD.bazel: $dt_build"; exit 1;
+              }
+              [ -f "$dt_map" ] || {
+                echo "::error::missing Canoe platform_map.bzl: $dt_map"; exit 1;
+              }
+              python3 - "$dt_extensions" <<'PY'
+              import sys
+              from pathlib import Path
+
+              path = Path(sys.argv[1])
+              text = path.read_text(encoding="utf-8")
+              qcom_load = (
+                  'load("//qcom/opensource/devicetree:qcom/platform_map.bzl", '
+                  '_get_dtb_list = "get_dtb_list", '
+                  '_get_dtbo_list = "get_dtbo_list")'
+              )
+              lines = [line for line in text.splitlines() if "platform_map.bzl" not in line]
+              text = qcom_load + "\n" + "\n".join(lines) + "\n"
+              text = text.replace(
+                  'return "//soc-repo/arch/arm64/boot/dts/vendor:msm_dt"',
+                  'return "//qcom/opensource/devicetree:msm_dt"',
+              )
+              if qcom_load not in text or 'return "//qcom/opensource/devicetree:msm_dt"' not in text:
+                  raise SystemExit("Canoe DT label normalization did not produce expected Bazel labels")
+              path.write_text(text, encoding="utf-8")
+              PY
+              echo "Нормализованы Canoe DT labels: qcom/opensource/devicetree"
               git init "$KERNEL_ROOT/common"
               git -C "$KERNEL_ROOT/common" config user.name "ABK Custom Source"
               git -C "$KERNEL_ROOT/common" config user.email "abk-custom-source@localhost"
