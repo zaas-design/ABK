@@ -139,7 +139,7 @@ on:
 jobs:
   preflight:
     name: 预检类 LineageOS 源码
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       source_url: ${{ steps.inspect.outputs.source_url }}
       source_ref: ${{ steps.inspect.outputs.source_ref }}
