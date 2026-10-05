@@ -1320,13 +1320,18 @@ jobs:
                 echo "::error::missing Canoe platform_map.bzl: $dt_map"; exit 1;
               }
               dt_makefile="$KERNEL_ROOT/qcom/opensource/devicetree/Makefile"
+              dt_platform_makefile="$KERNEL_ROOT/qcom/opensource/devicetree/qcom/Makefile"
               [ -f "$dt_makefile" ] || {
                 echo "::error::missing Canoe DT Makefile: $dt_makefile"; exit 1;
+              }
+              [ -f "$dt_platform_makefile" ] || {
+                echo "::error::missing Canoe platform DT Makefile: $dt_platform_makefile"; exit 1;
               }
               python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$dt_extensions"
               python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$android_build"
               python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$dt_build"
               python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$dt_makefile"
+              python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$dt_platform_makefile"
               while IFS= read -r -d '' bzl_file; do
                 if grep -q '//build/kernel/oplus:' "$bzl_file"; then
                   python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$bzl_file"
