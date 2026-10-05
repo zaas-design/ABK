@@ -16,6 +16,8 @@ QCOM_DTSTREE = 'return "//qcom/opensource/devicetree:msm_dt"'
 OLD_DTSTREE = 'return "//soc-repo/arch/arm64/boot/dts/vendor:msm_dt"'
 OLD_OPLUS_LOAD = 'load("//build/kernel/oplus:oplus_modules.bzl", "define_oplus_ddk_modules")'
 NEW_OPLUS_LOAD = 'load("//oplus/bazel:oplus_modules.bzl", "define_oplus_ddk_modules")'
+OLD_OPLUS_PREFIX = "//build/kernel/oplus:"
+NEW_OPLUS_PREFIX = "//oplus/bazel:"
 
 
 def main() -> int:
@@ -32,15 +34,12 @@ def main() -> int:
             raise SystemExit("Canoe DT label normalization did not produce expected Bazel labels")
         if "soc-repo/arch/arm64/boot/dts/vendor" in normalized:
             raise SystemExit("stale vendor DT label remains after Canoe normalization")
-    elif path.name == "android_build.bzl":
-        normalized = text.replace(OLD_OPLUS_LOAD, NEW_OPLUS_LOAD)
-        if OLD_OPLUS_LOAD in normalized:
-            raise SystemExit("stale Oplus Bazel label remains after Canoe normalization")
-        if NEW_OPLUS_LOAD not in normalized:
-            raise SystemExit("Canoe Oplus Bazel label was not found")
     else:
-        raise SystemExit(f"unsupported Bazel file for Canoe normalization: {path.name}")
-
+        normalized = text.replace(OLD_OPLUS_PREFIX, NEW_OPLUS_PREFIX)
+        if OLD_OPLUS_PREFIX in normalized:
+            raise SystemExit("stale Oplus Bazel label remains after Canoe normalization")
+        if OLD_OPLUS_PREFIX not in text:
+            raise SystemExit(f"unsupported Bazel file for Canoe normalization: {path.name}")
     path.write_text(normalized, encoding="utf-8")
     print(f"normalized Canoe DT labels in {path}")
     return 0
