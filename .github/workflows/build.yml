@@ -1227,7 +1227,8 @@ jobs:
               done
               if [ -L "$platform_root/vendor" ]; then
                 vendor_target="$(readlink "$platform_root/vendor")"
-                [ -d "$source_checkout/$vendor_target" ] || {
+                vendor_root="$(cd "$(dirname "$platform_root/vendor")" && pwd -P)/$vendor_target"
+                [ -d "$vendor_root" ] || {
                   echo "::error::kernel_platform vendor symlink target is missing: $vendor_target"; exit 1;
                 }
               fi
