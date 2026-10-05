@@ -14,6 +14,8 @@ QCOM_LOAD = (
 )
 QCOM_DTSTREE = 'return "//qcom/opensource/devicetree:msm_dt"'
 OLD_DTSTREE = 'return "//soc-repo/arch/arm64/boot/dts/vendor:msm_dt"'
+OLD_OPLUS_LOAD = 'load("//build/kernel/oplus:oplus_modules.bzl", "define_oplus_ddk_modules")'
+NEW_OPLUS_LOAD = 'load("//oplus/bazel:oplus_modules.bzl", "define_oplus_ddk_modules")'
 
 
 def main() -> int:
@@ -22,14 +24,22 @@ def main() -> int:
 
     path = Path(sys.argv[1])
     text = path.read_text(encoding="utf-8")
-    lines = [line for line in text.splitlines() if "platform_map.bzl" not in line]
-    normalized = QCOM_LOAD + "\n" + "\n".join(lines) + "\n"
-    normalized = normalized.replace(OLD_DTSTREE, QCOM_DTSTREE)
-
-    if QCOM_LOAD not in normalized or QCOM_DTSTREE not in normalized:
-        raise SystemExit("Canoe DT label normalization did not produce expected Bazel labels")
-    if "soc-repo/arch/arm64/boot/dts/vendor" in normalized:
-        raise SystemExit("stale vendor DT label remains after Canoe normalization")
+    if path.name == "msm_kernel_extensions.bzl":
+        lines = [line for line in text.splitlines() if "platform_map.bzl" not in line]
+        normalized = QCOM_LOAD + "\n" + "\n".join(lines) + "\n"
+        normalized = normalized.replace(OLD_DTSTREE, QCOM_DTSTREE)
+        if QCOM_LOAD not in normalized or QCOM_DTSTREE not in normalized:
+            raise SystemExit("Canoe DT label normalization did not produce expected Bazel labels")
+        if "soc-repo/arch/arm64/boot/dts/vendor" in normalized:
+            raise SystemExit("stale vendor DT label remains after Canoe normalization")
+    elif path.name == "android_build.bzl":
+        normalized = text.replace(OLD_OPLUS_LOAD, NEW_OPLUS_LOAD)
+        if OLD_OPLUS_LOAD in normalized:
+            raise SystemExit("stale Oplus Bazel label remains after Canoe normalization")
+        if NEW_OPLUS_LOAD not in normalized:
+            raise SystemExit("Canoe Oplus Bazel label was not found")
+    else:
+        raise SystemExit(f"unsupported Bazel file for Canoe normalization: {path.name}")
 
     path.write_text(normalized, encoding="utf-8")
     print(f"normalized Canoe DT labels in {path}")
