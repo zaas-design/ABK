@@ -11,6 +11,10 @@ on:
         required: false
         type: string
         default: "aosp"
+      source_layout:
+        required: false
+        type: string
+        default: "common"
       source_repo:
         required: false
         type: string
@@ -80,6 +84,10 @@ on:
       version:
         required: false
         type: string
+      kernel_localversion_override:
+        required: false
+        type: string
+        default: ""
       revision:
         required: false
         type: string
@@ -470,6 +478,7 @@ jobs:
         if: inputs.source_mode == 'custom_git'
         env:
           SOURCE_REPO: ${{ inputs.source_repo }}
+          SOURCE_LAYOUT: ${{ inputs.source_layout }}
           SOURCE_REF: ${{ inputs.source_ref }}
           SOURCE_COMMIT: ${{ inputs.source_commit }}
           SOURCE_PRIVATE: ${{ inputs.source_private }}
@@ -486,6 +495,10 @@ jobs:
             --source-url "$SOURCE_REPO" --access "$access" >/dev/null
           [ -n "$SOURCE_REF" ] || { echo "::error::源码 ref 不能为空"; exit 1; }
           [[ "$SOURCE_COMMIT" =~ ^[0-9a-fA-F]{40}$ ]] || { echo "::error::源码 commit 必须是完整 SHA"; exit 1; }
+          case "$SOURCE_LAYOUT" in
+            common|kernel_platform) ;;
+            *) echo "::error::不支持的源码 layout: $SOURCE_LAYOUT"; exit 1 ;;
+          esac
           python3 - <<'PY'
           import os, re
           if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", os.environ["SOURCE_PATCH_LEVEL"]):
@@ -1070,6 +1083,7 @@ jobs:
         env:
           ABK_CUSTOM_SOURCE_GITHUB_TOKEN: ${{ secrets.ABK_CUSTOM_SOURCE_GITHUB_TOKEN }}
           SOURCE_MODE: ${{ inputs.source_mode }}
+          SOURCE_LAYOUT: ${{ inputs.source_layout }}
           SOURCE_REPO: ${{ inputs.source_repo }}
           SOURCE_REF: ${{ inputs.source_ref }}
           SOURCE_PRIVATE: ${{ inputs.source_private }}
@@ -1105,7 +1119,7 @@ jobs:
           }
 
           # android.googlesource.com is intermittently unreachable from GitHub-hosted
-          # runners.  Keep the AOSP manifest, but redirect only kernel/common to its
+          # runners. Keep the AOSP manifest, but redirect only kernel/common to its
           # matching public mirror so the rest of the source tree uses the normal remotes.
           KERNEL_COMMON_AOSP=https://android.googlesource.com/kernel/common
           KERNEL_COMMON_MIRROR=https://github.com/aosp-mirror/kernel_common.git
@@ -1121,13 +1135,9 @@ jobs:
           repo_sync_retry() {
             local attempt
             for attempt in 1 2 3; do
-              # The full Android manifest also contains unrelated Trusty,
-              # virtual-device, Rust and NDK projects that are unavailable from
-              # this runner.  The GKI build consumes common/ plus the Kleaf
-              # metadata in build/kernel/; the manifest project name is
-              # kernel/build, so sync it by its path. Kleaf requires its host
-              # tools, local Bazel registry/rules, hermetic clang toolchain,
-              # and the small set of local libraries declared by its module.
+              # The full Android manifest contains unrelated projects unavailable from
+              # this runner. The GKI build consumes common/ plus Kleaf metadata and its
+              # explicit local dependencies.
               if $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast \
                 common \
                 build/kernel \
@@ -1180,19 +1190,59 @@ jobs:
               git config --global http.https://github.com/.extraheader "$access_header"
             fi
 
-            rm -rf common
-            git init common
-            git -C common remote add origin "$SOURCE_REPO"
+            source_checkout="$RUNNER_TEMP/abk-custom-source"
+            rm -rf "$source_checkout"
+            git init "$source_checkout"
+            git -C "$source_checkout" remote add origin "$SOURCE_REPO"
             if [ -n "$access_header" ]; then
-              git -C common config http.https://github.com/.extraheader "$access_header"
+              git -C "$source_checkout" config http.https://github.com/.extraheader "$access_header"
             fi
-            git -C common fetch --depth=1 origin "$SOURCE_COMMIT"
-            git -C common checkout --detach "$SOURCE_COMMIT"
-            git -C common config user.name "ABK Custom Source"
-            git -C common config user.email "abk-custom-source@localhost"
+            git -C "$source_checkout" fetch --depth=1 origin "$SOURCE_COMMIT"
+            git -C "$source_checkout" checkout --detach "$SOURCE_COMMIT"
+
+            if [ "$SOURCE_LAYOUT" = "kernel_platform" ]; then
+              platform_root="$source_checkout/kernel_platform"
+              [ -d "$platform_root/common" ] || {
+                echo "::error::kernel_platform layout must contain kernel_platform/common"; exit 1;
+              }
+              for required in \
+                "$platform_root/soc-repo/BUILD.bazel" \
+                "$platform_root/soc-repo/kleaf-scripts/targets/canoe.bzl" \
+                "$platform_root/soc-repo/drivers/pinctrl/qcom/pinctrl-canoe.c" \
+                "$platform_root/soc-repo/drivers/interconnect/qcom/canoe.c" \
+                "$platform_root/soc-repo/drivers/remoteproc/qcom_q6v5_pas.c" \
+                "$platform_root/soc-repo/drivers/soc/qcom/wcd939x-i2c.c" \
+                "$platform_root/tools/bazel"; do
+                [ -e "$required" ] || { echo "::error::kernel_platform source is missing $required"; exit 1; }
+              done
+              if [ -L "$platform_root/vendor" ]; then
+                vendor_target="$(readlink "$platform_root/vendor")"
+                [ -d "$source_checkout/$vendor_target" ] || {
+                  echo "::error::kernel_platform vendor symlink target is missing: $vendor_target"; exit 1;
+                }
+              fi
+              for path in common common-modules build external oplus qcom soc-repo tools WORKSPACE MODULE.bazel WORKSPACE.bzlmod device.bazelrc build_with_bazel.py; do
+                rm -rf "$KERNEL_ROOT/$path"
+                if [ -e "$platform_root/$path" ] || [ -L "$platform_root/$path" ]; then
+                  cp -a "$platform_root/$path" "$KERNEL_ROOT/$path"
+                fi
+              done
+              if [ -d "$source_checkout/vendor" ]; then
+                rm -rf "$KERNEL_ROOT/../vendor"
+                cp -a "$source_checkout/vendor" "$KERNEL_ROOT/../vendor"
+              fi
+              git init "$KERNEL_ROOT/common"
+              git -C "$KERNEL_ROOT/common" config user.name "ABK Custom Source"
+              git -C "$KERNEL_ROOT/common" config user.email "abk-custom-source@localhost"
+            else
+              rm -rf "$KERNEL_ROOT/common"
+              cp -a "$source_checkout" "$KERNEL_ROOT/common"
+              git -C "$KERNEL_ROOT/common" config user.name "ABK Custom Source"
+              git -C "$KERNEL_ROOT/common" config user.email "abk-custom-source@localhost"
+            fi
 
             python3 "$GITHUB_WORKSPACE/.github/scripts/custom-source.py" inspect \
-              --source-dir common \
+              --source-dir "$KERNEL_ROOT/common" \
               --source-url "$SOURCE_REPO" \
               --source-ref "$SOURCE_REF" \
               --resolved-commit "$SOURCE_COMMIT" \
@@ -1204,12 +1254,13 @@ jobs:
               --github-output "$GITHUB_OUTPUT"
 
             python3 "$GITHUB_WORKSPACE/.github/scripts/custom-source.py" merge-defconfigs \
-              --source-dir common \
+              --source-dir "$KERNEL_ROOT/common" \
               --defconfigs "$SOURCE_DEFCONFIGS" \
               --output "$DEFCONFIG"
 
             echo "ABK_SOURCE_MODE=custom_git" >> "$GITHUB_ENV"
             echo "ABK_CUSTOM_SOURCE_ROOT=$KERNEL_ROOT/common" >> "$GITHUB_ENV"
+            echo "ABK_SOURCE_LAYOUT=$SOURCE_LAYOUT" >> "$GITHUB_ENV"
             echo "ABK_CUSTOM_SOURCE_URL=$SOURCE_REPO" >> "$GITHUB_ENV"
             echo "ABK_CUSTOM_SOURCE_REF=$SOURCE_REF" >> "$GITHUB_ENV"
             echo "ABK_CUSTOM_SOURCE_ACCESS=$([ "$SOURCE_PRIVATE" = "true" ] && echo github_private || echo public)" >> "$GITHUB_ENV"
@@ -4018,8 +4069,14 @@ jobs:
             sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
           fi
 
+          LOCALVERSION_OVERRIDE=$(echo "${{ inputs.kernel_localversion_override }}" | tr -d '[:space:]')
           VERSION_INPUT=$(echo "${{ inputs.version }}" | tr -d '[:space:]')
-          if [ -n "$VERSION_INPUT" ]; then
+          if [ -n "$LOCALVERSION_OVERRIDE" ]; then
+            CLEAN_VERSION="$LOCALVERSION_OVERRIDE"
+            perl -i -0777 -pe 's/(.*)echo "\$\{KERNELVERSION\}\$\{file_localversion\}\$\{config_localversion\}\$\{LOCALVERSION\}\$\{scm_version\}"/$1echo "\$\{KERNELVERSION\}'"${CLEAN_VERSION}"'"/s' ./common/scripts/setlocalversion 2>/dev/null || true
+            sed -i "\$s|echo \"\$res\"|echo \"${CLEAN_VERSION}\"|" ./common/scripts/setlocalversion 2>/dev/null || true
+            sed -i '/^CONFIG_LOCALVERSION=/ s/="\([^"]*\)"/="'"$CLEAN_VERSION"'"/' ./common/arch/arm64/configs/gki_defconfig
+          elif [ -n "$VERSION_INPUT" ]; then
             CLEAN_VERSION=$(echo "$VERSION_INPUT" | sed -E 's/^[0-9]+\.[0-9]+\.[0-9]+//')
             perl -i -0777 -pe 's/(.*)echo "\$\{KERNELVERSION\}\$\{file_localversion\}\$\{config_localversion\}\$\{LOCALVERSION\}\$\{scm_version\}"/$1echo "\$\{KERNELVERSION\}'"${CLEAN_VERSION}"'"/s' ./common/scripts/setlocalversion 2>/dev/null || true
             sed -i "\$s|echo \"\$res\"|echo \"${CLEAN_VERSION}\"|" ./common/scripts/setlocalversion 2>/dev/null || true
@@ -6498,8 +6555,20 @@ jobs:
               if [ "${{ inputs.kernel_version }}" = "6.12" ]; then
                 LTO_FLAG="--lto=none"
               fi
-              tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG //common:kernel_aarch64_dist || exit 1
-              strings ./bazel-bin/common/kernel_aarch64/Image | grep 'Linux version'
+              BUILD_TARGET="//common:kernel_aarch64_dist"
+              if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
+                BUILD_TARGET="//soc-repo:canoe_perf_dist"
+              fi
+              tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG "$BUILD_TARGET" || exit 1
+              if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
+                ABK_KERNEL_DIST="$KERNEL_ROOT/bazel-bin/soc-repo/out/msm-kernel-canoe-perf/dist"
+                [ -d "$ABK_KERNEL_DIST" ] || ABK_KERNEL_DIST="$KERNEL_ROOT/out/msm-kernel-canoe-perf/dist"
+                [ -d "$ABK_KERNEL_DIST" ] || { echo "::error::Canoe dist directory not found"; exit 1; }
+                echo "ABK_KERNEL_DIST=$ABK_KERNEL_DIST" >> "$GITHUB_ENV"
+                strings "$ABK_KERNEL_DIST/Image" | grep 'Linux version'
+              else
+                strings ./bazel-bin/common/kernel_aarch64/Image | grep 'Linux version'
+              fi
             fi
 
             echo "当前 KSU 最新提交日期: ${KSU_LATEST_COMMIT_DATE}"
@@ -6527,7 +6596,11 @@ jobs:
               fi
               ;;
             "android14"|"android15"|"android16")
-              TARGET_PATH="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/"
+              if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
+                TARGET_PATH="${ABK_KERNEL_DIST:?Canoe dist directory was not set}"
+              else
+                TARGET_PATH="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/"
+              fi
               ;;
           esac
 
@@ -6553,6 +6626,134 @@ jobs:
           mv oImage Image
           rm -f "$image_backup"
 
+      - name: Собрать ABI и данные воспроизводимости
+        if: always()
+        env:
+          ABK_SOURCE_MODE: ${{ inputs.source_mode }}
+          ABK_SOURCE_LAYOUT: ${{ inputs.source_layout }}
+          ABK_SOURCE_REPO: ${{ inputs.source_repo }}
+          ABK_SOURCE_REF: ${{ inputs.source_ref }}
+          ABK_SOURCE_COMMIT: ${{ inputs.source_commit }}
+          ABK_DEVICE_LABEL: ${{ inputs.source_device_label }}
+          ABK_KERNEL_LOCALVERSION_OVERRIDE: ${{ inputs.kernel_localversion_override }}
+          ABK_KSU_VARIANT: ${{ inputs.ksu_variant }}
+          ABK_KSU_BRANCH: ${{ inputs.ksu_branch }}
+          ABK_KSU_CUSTOM_REF: ${{ inputs.custom_ref }}
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          DIAG="$GITHUB_WORKSPACE/ABK_KERNEL_DIAGNOSTICS"
+          rm -rf "$DIAG"
+          mkdir -p "$DIAG/files" "$DIAG/source" "$DIAG/patches"
+
+          {
+            echo "generated_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "source_mode=$ABK_SOURCE_MODE"
+            echo "source_layout=$ABK_SOURCE_LAYOUT"
+            echo "source_repo=$ABK_SOURCE_REPO"
+            echo "source_ref=$ABK_SOURCE_REF"
+            echo "source_commit=$ABK_SOURCE_COMMIT"
+            echo "device_label=$ABK_DEVICE_LABEL"
+            echo "kernel_localversion_override=$ABK_KERNEL_LOCALVERSION_OVERRIDE"
+            echo "ksu_variant=$ABK_KSU_VARIANT"
+            echo "ksu_branch=$ABK_KSU_BRANCH"
+            echo "ksu_custom_ref=$ABK_KSU_CUSTOM_REF"
+            echo "android_version=${{ inputs.android_version }}"
+            echo "kernel_version=${{ inputs.kernel_version }}"
+            echo "sub_level=${{ inputs.sub_level }}"
+            echo "os_patch_level=${{ inputs.os_patch_level }}"
+          } > "$DIAG/build-inputs.txt"
+
+          {
+            uname -a 2>/dev/null || true
+            git --version 2>/dev/null || true
+            clang --version 2>/dev/null || true
+            ld.lld --version 2>/dev/null || true
+            python3 --version 2>/dev/null || true
+            repo --version 2>/dev/null || true
+            if [ -x "$KERNEL_ROOT/tools/bazel" ]; then
+              "$KERNEL_ROOT/tools/bazel" version 2>/dev/null || true
+            fi
+          } > "$DIAG/toolchain.txt"
+
+          {
+            echo "# source manifest / revision"
+            printf 'source_repo=%s\nsource_ref=%s\nsource_commit=%s\n' \
+              "$ABK_SOURCE_REPO" "$ABK_SOURCE_REF" "$ABK_SOURCE_COMMIT"
+            for root in "$KERNEL_ROOT" "$KERNEL_ROOT/common"; do
+              if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+                echo "[$root]"
+                git -C "$root" rev-parse HEAD 2>/dev/null || true
+                git -C "$root" describe --always --dirty 2>/dev/null || true
+                git -C "$root" submodule status 2>/dev/null || true
+              fi
+            done
+            if command -v repo >/dev/null 2>&1 && [ -d "$KERNEL_ROOT/.repo" ]; then
+              repo -C "$KERNEL_ROOT" manifest -r 2>/dev/null || true
+            elif command -v repo >/dev/null 2>&1 && [ -d "$KERNEL_ROOT/common/.repo" ]; then
+              repo -C "$KERNEL_ROOT/common" manifest -r 2>/dev/null || true
+            else
+              echo "No repo manifest directory found; source commit above is the pinned source reference."
+            fi
+          } > "$DIAG/source/manifest-and-revisions.txt"
+
+          hash_tree() {
+            local label="$1"
+            local root="$2"
+            local out="$DIAG/patches/$label-sha256.txt"
+            [ -d "$root" ] || return 0
+            : > "$out"
+            while IFS= read -r -d '' file; do
+              sha256sum "$file" >> "$out"
+            done < <(find "$root" -type f \( -name '*.patch' -o -name '*.diff' \) -print0 | sort -z)
+          }
+
+          hash_tree kernel-patches "${KERNEL_PATCHES:-}"
+          hash_tree sukisu-patches "${SUKISU_PATCHES:-}"
+          hash_tree susfs4ksu "${SUSFS4KSU:-}"
+
+          for root in "$KERNEL_ROOT" "$KERNEL_ROOT/common"; do
+            if git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+              name="$(basename "$root")"
+              git -C "$root" diff --no-ext-diff --binary | sha256sum > "$DIAG/patches/$name-working-tree-diff.sha256"
+              git -C "$root" diff --name-status > "$DIAG/patches/$name-working-tree-diff.files"
+            fi
+          done
+
+          capture_files() {
+            local kind="$1"
+            shift
+            local index="$DIAG/${kind}-index.txt"
+            : > "$index"
+            declare -A seen=()
+            for root in "$@"; do
+              [ -d "$root" ] || continue
+              while IFS= read -r -d '' file; do
+                hash="$(sha256sum "$file" | awk '{print $1}')"
+                if [ -n "${seen[$hash]:-}" ]; then
+                  printf '%s\tduplicate-of=%s\t%s\n' "$file" "${seen[$hash]}" "$hash" >> "$index"
+                  continue
+                fi
+                seen[$hash]="$file"
+                safe="$(printf '%s' "${file#"$KERNEL_ROOT"/}" | tr '/ ' '__')"
+                dest="$DIAG/files/${kind}-${safe}"
+                cp -L "$file" "$dest"
+                printf '%s\t%s\t%s\n' "$file" "$dest" "$hash" >> "$index"
+              done < <(find "$root" -type f -name "$kind" -not -path '*/.git/*' -print0 | sort -z)
+            done
+          }
+
+          capture_files .config "$KERNEL_ROOT/out" "$KERNEL_ROOT/bazel-bin"
+          capture_files Module.symvers "$KERNEL_ROOT/out" "$KERNEL_ROOT/bazel-bin"
+          capture_files vmlinux "$KERNEL_ROOT/out" "$KERNEL_ROOT/bazel-bin"
+
+          find "$KERNEL_ROOT/out" "$KERNEL_ROOT/bazel-bin" -type f \( -name 'Image' -o -name 'Image.lz4' -o -name 'Image.gz' \) -print0 2>/dev/null \
+            | while IFS= read -r -d '' file; do sha256sum "$file"; done > "$DIAG/image-sha256.txt" || true
+
+          strings "$KERNEL_ROOT"/out/*/dist/Image "$KERNEL_ROOT"/bazel-bin/common/kernel_aarch64/Image "$KERNEL_ROOT"/bazel-bin/soc-repo/out/msm-kernel-canoe-perf/dist/Image 2>/dev/null \
+            | grep -m1 'Linux version' > "$DIAG/kernel-release.txt" || true
+
       - name: 准备 Boot 镜像
         run: |
           set -euo pipefail
@@ -6561,7 +6762,11 @@ jobs:
           if [ "${{ inputs.android_version }}" == "android12" ] || [ "${{ inputs.android_version }}" == "android13" ]; then
             SRC_DIR="$KERNEL_ROOT/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist"
           else
-            SRC_DIR="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64"
+            if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
+              SRC_DIR="${ABK_KERNEL_DIST:?Canoe dist directory was not set}"
+            else
+              SRC_DIR="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64"
+            fi
           fi
 
           cp "$SRC_DIR/Image" ./bootimgs/
@@ -6717,6 +6922,15 @@ jobs:
             ABK_FLASH_DEPENDENCIES.json
             LICENSE
             THIRD_PARTY_NOTICES.md
+          compression-level: 9
+
+      - name: 上传 ABI и воспроизводимость
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ inputs.ksu_variant }}_kernel-${{ env.CONFIG }}-ABI-diagnostics
+          path: ABK_KERNEL_DIAGNOSTICS/
+          if-no-files-found: ignore
           compression-level: 9
 
       - name: 上传补丁冲突文件
