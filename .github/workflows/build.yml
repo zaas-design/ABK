@@ -1273,7 +1273,7 @@ jobs:
                 if grep -q '//build/kernel/oplus:' "$bzl_file"; then
                   python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$bzl_file"
                 fi
-              done < <(find "$KERNEL_ROOT" -type f -name '*.bzl' -print0)
+              done < <(find "$KERNEL_ROOT" -type f \( -name '*.bzl' -o -name 'BUILD' -o -name 'BUILD.bazel' \) -print0)
               variant_generator="$KERNEL_ROOT/oplus/bazel/oplus_modules_variant.sh"
               [ -x "$variant_generator" ] || {
                 echo "::error::missing executable Oplus variant generator: $variant_generator"; exit 1;
