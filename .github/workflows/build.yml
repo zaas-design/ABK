@@ -1138,7 +1138,7 @@ jobs:
               # The full Android manifest contains unrelated projects unavailable from
               # this runner. The GKI build consumes common/ plus Kleaf metadata and its
               # explicit local dependencies.
-              if $REPO --trace sync -c -j$(nproc --all) --no-tags --fail-fast \
+              if $REPO --trace sync -c -j2 --retry-fetches=5 --no-tags --fail-fast \
                 common \
                 build/kernel \
                 prebuilts/build-tools \
