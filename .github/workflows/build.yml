@@ -1238,14 +1238,27 @@ jobs:
                   cp -a "$platform_root/$path" "$KERNEL_ROOT/$path"
                 fi
               done
-              if [ -d "$source_checkout/vendor" ]; then
-                # kernel_platform/vendor is a symlink to the sibling vendor
-                # checkout in the donor. The Bazel workspace is KERNEL_ROOT,
-                # so vendor must be materialized inside that workspace for
-                # //vendor/oplus/... labels to resolve.
+              if [ -L "$platform_root/vendor" ]; then
+                # Preserve the donor's sibling-vendor topology. Several
+                # soc-repo symlinks also resolve through ../vendor, so merely
+                # copying vendor into KERNEL_ROOT leaves those links broken.
+                rm -rf "$KERNEL_ROOT/vendor" "$KERNEL_ROOT/../vendor"
+                cp -a "$vendor_root" "$KERNEL_ROOT/../vendor"
+                ln -s "$vendor_target" "$KERNEL_ROOT/vendor"
+              elif [ -d "$source_checkout/vendor" ]; then
                 rm -rf "$KERNEL_ROOT/vendor"
                 cp -a "$source_checkout/vendor" "$KERNEL_ROOT/vendor"
               fi
+              doc_bindings="$KERNEL_ROOT/soc-repo/Documentation/devicetree/bindings"
+              if [ -L "$doc_bindings" ] && [ ! -e "$doc_bindings" ]; then
+                rm -f "$doc_bindings"
+                ln -s "../../../qcom/opensource/devicetree/bindings" "$doc_bindings"
+              fi
+              while IFS= read -r -d '' symlink; do
+                [ -e "$symlink" ] || {
+                  echo "::error::broken donor symlink: $symlink -> $(readlink "$symlink")"; exit 1;
+                }
+              done < <(find "$KERNEL_ROOT/soc-repo" -type l -print0)
               # This donor keeps Qualcomm device-tree sources under
               # qcom/opensource/devicetree, while its downstream Oplus helper
               # still points at the vendor/ tree used by another checkout.
