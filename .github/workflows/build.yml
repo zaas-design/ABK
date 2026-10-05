@@ -1265,6 +1265,17 @@ jobs:
               }
               python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$dt_extensions"
               python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$android_build"
+              variant_generator="$KERNEL_ROOT/oplus/bazel/oplus_modules_variant.sh"
+              [ -x "$variant_generator" ] || {
+                echo "::error::missing executable Oplus variant generator: $variant_generator"; exit 1;
+              }
+              # The donor normally creates this generated Starlark file from
+              # prepare_vendor.sh. ABK calls Bazel directly, so generate it
+              # explicitly for the Canoe/perf target before analysis.
+              "$variant_generator" canoe perf ""
+              [ -f "$KERNEL_ROOT/oplus/bazel/oplus_modules_variant.bzl" ] || {
+                echo "::error::Oplus variant generator did not create oplus_modules_variant.bzl"; exit 1;
+              }
               echo "Нормализованы Canoe DT labels: qcom/opensource/devicetree"
               git init "$KERNEL_ROOT/common"
               git -C "$KERNEL_ROOT/common" config user.name "ABK Custom Source"
