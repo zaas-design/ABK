@@ -20,6 +20,7 @@ OLD_OPLUS_PREFIX = "//build/kernel/oplus:"
 NEW_OPLUS_PREFIX = "//oplus/bazel:"
 QCOM_DT_MAKEFILE = ("qcom", "opensource", "devicetree", "Makefile")
 QCOM_DT_BUILD = ("qcom", "opensource", "devicetree", "BUILD.bazel")
+QCOM_SUBDIR_LINE = "subdir-y += qcom"
 OPLUS_DT_LINES = {
     "subdir-y += oplus",
     '"oplus/Makefile",',
@@ -48,9 +49,17 @@ def main() -> int:
         # upstream Makefile nevertheless unconditionally adds it, which makes
         # the otherwise valid Canoe DT package fail during Kbuild.
         if not (path.parent / "oplus" / "Makefile").is_file():
-            normalized = "\n".join(
-                line for line in text.splitlines() if line.strip() not in OPLUS_DT_LINES
-            ) + "\n"
+            lines = []
+            for line in text.splitlines():
+                stripped = line.strip()
+                if stripped in OPLUS_DT_LINES:
+                    continue
+                if stripped == "#subdir-y += qcom":
+                    line = QCOM_SUBDIR_LINE
+                lines.append(line)
+            normalized = "\n".join(lines) + "\n"
+            if (path.parent / "qcom").is_dir() and QCOM_SUBDIR_LINE not in normalized.splitlines():
+                raise SystemExit("Canoe DT Makefile does not enable the available qcom DT directory")
         else:
             normalized = text
     elif path.parts[-4:] == QCOM_DT_BUILD:
