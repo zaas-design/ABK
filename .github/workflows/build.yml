@@ -1239,8 +1239,12 @@ jobs:
                 fi
               done
               if [ -d "$source_checkout/vendor" ]; then
-                rm -rf "$KERNEL_ROOT/../vendor"
-                cp -a "$source_checkout/vendor" "$KERNEL_ROOT/../vendor"
+                # kernel_platform/vendor is a symlink to the sibling vendor
+                # checkout in the donor. The Bazel workspace is KERNEL_ROOT,
+                # so vendor must be materialized inside that workspace for
+                # //vendor/oplus/... labels to resolve.
+                rm -rf "$KERNEL_ROOT/vendor"
+                cp -a "$source_checkout/vendor" "$KERNEL_ROOT/vendor"
               fi
               # This donor keeps Qualcomm device-tree sources under
               # qcom/opensource/devicetree, while its downstream Oplus helper
@@ -1265,6 +1269,11 @@ jobs:
               }
               python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$dt_extensions"
               python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$android_build"
+              while IFS= read -r -d '' bzl_file; do
+                if grep -q '//build/kernel/oplus:' "$bzl_file"; then
+                  python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$bzl_file"
+                fi
+              done < <(find "$KERNEL_ROOT" -type f -name '*.bzl' -print0)
               variant_generator="$KERNEL_ROOT/oplus/bazel/oplus_modules_variant.sh"
               [ -x "$variant_generator" ] || {
                 echo "::error::missing executable Oplus variant generator: $variant_generator"; exit 1;
@@ -6605,6 +6614,9 @@ jobs:
               if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
                 BUILD_TARGET="//soc-repo:canoe_perf_dist"
               fi
+              echo "=== Bazel analysis-only preflight ==="
+              tools/bazel build --nobuild --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG "$BUILD_TARGET"
+              echo "=== Bazel preflight passed; starting full build ==="
               tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG "$BUILD_TARGET" || exit 1
               if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
                 ABK_KERNEL_DIST="$KERNEL_ROOT/bazel-bin/soc-repo/out/msm-kernel-canoe-perf/dist"
