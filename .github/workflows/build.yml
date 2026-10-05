@@ -1254,11 +1254,28 @@ jobs:
                 rm -f "$doc_bindings"
                 ln -s "../../../qcom/opensource/devicetree/bindings" "$doc_bindings"
               fi
+              [ -e "$doc_bindings" ] || {
+                echo "::error::Canoe DT bindings symlink does not resolve: $doc_bindings -> $(readlink "$doc_bindings")"; exit 1;
+              }
+              dfr_include="$KERNEL_ROOT/../vendor/oplus/kernel/dfr/soc/oplus/dfr/include"
+              dfr_include_target="$KERNEL_ROOT/../vendor/oplus/kernel/dfr/include"
+              if [ -L "$dfr_include" ] && [ ! -e "$dfr_include" ] && [ -d "$dfr_include_target" ]; then
+                rm -f "$dfr_include"
+                ln -s "../../../include" "$dfr_include"
+              fi
+              [ -e "$dfr_include" ] || {
+                echo "::error::donor vendor symlink does not resolve: $dfr_include -> $(readlink "$dfr_include")"; exit 1;
+              }
               while IFS= read -r -d '' symlink; do
                 [ -e "$symlink" ] || {
                   echo "::error::broken donor symlink: $symlink -> $(readlink "$symlink")"; exit 1;
                 }
               done < <(find "$KERNEL_ROOT/soc-repo" -type l -print0)
+              while IFS= read -r -d '' symlink; do
+                [ -e "$symlink" ] || {
+                  echo "::error::broken donor vendor symlink: $symlink -> $(readlink "$symlink")"; exit 1;
+                }
+              done < <(find "$KERNEL_ROOT/../vendor" -type l -print0)
               # This donor keeps Qualcomm device-tree sources under
               # qcom/opensource/devicetree, while its downstream Oplus helper
               # still points at the vendor/ tree used by another checkout.
@@ -1280,8 +1297,14 @@ jobs:
               [ -f "$dt_map" ] || {
                 echo "::error::missing Canoe platform_map.bzl: $dt_map"; exit 1;
               }
+              dt_makefile="$KERNEL_ROOT/qcom/opensource/devicetree/Makefile"
+              [ -f "$dt_makefile" ] || {
+                echo "::error::missing Canoe DT Makefile: $dt_makefile"; exit 1;
+              }
               python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$dt_extensions"
               python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$android_build"
+              python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$dt_build"
+              python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$dt_makefile"
               while IFS= read -r -d '' bzl_file; do
                 if grep -q '//build/kernel/oplus:' "$bzl_file"; then
                   python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$bzl_file"
@@ -1292,6 +1315,14 @@ jobs:
                   python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$bzl_file"
                 fi
               done < <(find -L "$KERNEL_ROOT/vendor" -type f \( -name '*.bzl' -o -name 'BUILD' -o -name 'BUILD.bazel' \) -print0)
+              if [ ! -f "$KERNEL_ROOT/qcom/opensource/devicetree/oplus/Makefile" ]; then
+                if grep -qE '(^|[[:space:]])subdir-y[[:space:]]*\+=[[:space:]]*oplus([[:space:]]|$)' "$dt_makefile"; then
+                  echo "::error::stale absent Oplus DT subdirectory remains in $dt_makefile"; exit 1;
+                fi
+                if grep -qE '"oplus/(Makefile|\*\*/\*\.(dtsi|dts|dtso))"' "$dt_build"; then
+                  echo "::error::stale absent Oplus DT sources remain in $dt_build"; exit 1;
+                fi
+              fi
               variant_generator="$KERNEL_ROOT/oplus/bazel/oplus_modules_variant.sh"
               [ -x "$variant_generator" ] || {
                 echo "::error::missing executable Oplus variant generator: $variant_generator"; exit 1;
