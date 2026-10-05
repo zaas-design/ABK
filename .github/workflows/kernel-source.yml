@@ -49,11 +49,6 @@ on:
         type: choice
         options: ["Stable(标准)", "Dev(开发)", "Latest(最新)", "Custom(自定义)"]
         default: "Stable(标准)"
-      custom_ref:
-        description: "KernelSU 自定义 ref"
-        required: false
-        type: string
-        default: ""
       version:
         description: "自定义内核版本后缀"
         required: false
@@ -289,7 +284,6 @@ jobs:
       revision: ""
       ksu_variant: ${{ inputs.kernelsu_variant }}
       ksu_branch: ${{ inputs.kernelsu_branch }}
-      custom_ref: ${{ inputs.custom_ref }}
       version: ${{ inputs.version }}
       kernel_localversion_override: ${{ inputs.kernel_localversion_override }}
       build_time: ${{ inputs.build_time }}
