@@ -18,6 +18,15 @@ OLD_OPLUS_LOAD = 'load("//build/kernel/oplus:oplus_modules.bzl", "define_oplus_d
 NEW_OPLUS_LOAD = 'load("//oplus/bazel:oplus_modules.bzl", "define_oplus_ddk_modules")'
 OLD_OPLUS_PREFIX = "//build/kernel/oplus:"
 NEW_OPLUS_PREFIX = "//oplus/bazel:"
+QCOM_DT_MAKEFILE = ("qcom", "opensource", "devicetree", "Makefile")
+QCOM_DT_BUILD = ("qcom", "opensource", "devicetree", "BUILD.bazel")
+OPLUS_DT_LINES = {
+    "subdir-y += oplus",
+    '"oplus/Makefile",',
+    '"oplus/**/*.dtsi",',
+    '"oplus/**/*.dts",',
+    '"oplus/**/*.dtso",',
+}
 
 
 def main() -> int:
@@ -34,6 +43,25 @@ def main() -> int:
             raise SystemExit("Canoe DT label normalization did not produce expected Bazel labels")
         if "soc-repo/arch/arm64/boot/dts/vendor" in normalized:
             raise SystemExit("stale vendor DT label remains after Canoe normalization")
+    elif path.parts[-4:] == QCOM_DT_MAKEFILE:
+        # This donor carries no qcom/opensource/devicetree/oplus tree.  The
+        # upstream Makefile nevertheless unconditionally adds it, which makes
+        # the otherwise valid Canoe DT package fail during Kbuild.
+        if not (path.parent / "oplus" / "Makefile").is_file():
+            normalized = "\n".join(
+                line for line in text.splitlines() if line.strip() not in OPLUS_DT_LINES
+            ) + "\n"
+        else:
+            normalized = text
+    elif path.parts[-4:] == QCOM_DT_BUILD:
+        # Keep Bazel's source list consistent with the Kbuild Makefile when
+        # the optional Oplus DT overlay is absent from the donor checkout.
+        if not (path.parent / "oplus" / "Makefile").is_file():
+            normalized = "\n".join(
+                line for line in text.splitlines() if line.strip() not in OPLUS_DT_LINES
+            ) + "\n"
+        else:
+            normalized = text
     else:
         normalized = text.replace(OLD_OPLUS_PREFIX, NEW_OPLUS_PREFIX)
         if OLD_OPLUS_PREFIX in normalized:
@@ -41,7 +69,7 @@ def main() -> int:
         if OLD_OPLUS_PREFIX not in text:
             raise SystemExit(f"unsupported Bazel file for Canoe normalization: {path.name}")
     path.write_text(normalized, encoding="utf-8")
-    print(f"normalized Canoe DT labels in {path}")
+    print(f"normalized Canoe donor file in {path}")
     return 0
 
 
