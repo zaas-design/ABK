@@ -229,12 +229,21 @@ jobs:
               "$source_dir/kernel_platform/soc-repo/drivers/interconnect/qcom/canoe.c" \
               "$source_dir/kernel_platform/soc-repo/drivers/remoteproc/qcom_q6v5_pas.c" \
               "$source_dir/kernel_platform/soc-repo/drivers/soc/qcom/wcd939x-i2c.c" \
-              "$source_dir/kernel_platform/tools/bazel"; do
+              "$source_dir/kernel_platform/tools/bazel" \
+              "$source_dir/kernel_platform/qcom/opensource/devicetree/BUILD.bazel" \
+              "$source_dir/kernel_platform/qcom/opensource/devicetree/qcom/platform_map.bzl"; do
               [ -e "$required" ] || { echo "::error::kernel_platform source is missing $required"; exit 1; }
             done
             grep -q 'define_canoe' "$source_dir/kernel_platform/soc-repo/BUILD.bazel" || {
               echo "::error::kernel_platform source does not define Canoe targets"; exit 1;
             }
+            grep -q 'platform_map.bzl' "$source_dir/kernel_platform/soc-repo/kleaf-scripts/msm_kernel_extensions.bzl" || {
+              echo "::error::Canoe Kleaf DT extensions do not expose platform_map.bzl"; exit 1;
+            }
+            grep -q 'get_dtstree' "$source_dir/kernel_platform/soc-repo/kleaf-scripts/msm_kernel_extensions.bzl" || {
+              echo "::error::Canoe Kleaf DT extensions do not expose get_dtstree"; exit 1;
+            }
+            echo "Canoe preflight: Qualcomm DT package and platform map are present; build job will normalize donor DT labels."
           fi
 
           python3 .github/scripts/custom-source.py inspect \
