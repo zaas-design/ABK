@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sys
+import re
 from pathlib import Path
 
 
@@ -19,6 +20,7 @@ NEW_OPLUS_LOAD = 'load("//oplus/bazel:oplus_modules.bzl", "define_oplus_ddk_modu
 OLD_OPLUS_PREFIX = "//build/kernel/oplus:"
 NEW_OPLUS_PREFIX = "//oplus/bazel:"
 QCOM_DT_MAKEFILE = ("qcom", "opensource", "devicetree", "Makefile")
+QCOM_PLATFORM_DT_MAKEFILE = ("qcom", "opensource", "devicetree", "qcom", "Makefile")
 QCOM_DT_BUILD = ("qcom", "opensource", "devicetree", "BUILD.bazel")
 QCOM_SUBDIR_LINE = "subdir-y += qcom"
 OPLUS_DT_LINES = {
@@ -44,6 +46,16 @@ def main() -> int:
             raise SystemExit("Canoe DT label normalization did not produce expected Bazel labels")
         if "soc-repo/arch/arm64/boot/dts/vendor" in normalized:
             raise SystemExit("stale vendor DT label remains after Canoe normalization")
+    elif path.parts[-5:] == QCOM_PLATFORM_DT_MAKEFILE:
+        # Bazel's Canoe target requests separate base DTBs and DTBOs.  The
+        # donor Kbuild also adds every composite base+overlay DTB, but those
+        # composites are not outputs of this target and some board overlays
+        # cannot be applied to the generic base DTB.
+        normalized = re.sub(
+            r"(?m)^(\s*)dtb-y \+= \$\([A-Za-z0-9_-]+-dtb-y\) \$\(([A-Za-z0-9_-]+-overlays-dtb-y)\)\s*$",
+            r"\1dtb-y += $(\2)",
+            text,
+        )
     elif path.parts[-4:] == QCOM_DT_MAKEFILE:
         # This donor carries no qcom/opensource/devicetree/oplus tree.  The
         # upstream Makefile nevertheless unconditionally adds it, which makes
