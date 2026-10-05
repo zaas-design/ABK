@@ -1248,10 +1248,14 @@ jobs:
               # Normalize that label before Bazel analysis and fail early if the
               # actual Canoe DT package is not present.
               dt_extensions="$KERNEL_ROOT/soc-repo/kleaf-scripts/msm_kernel_extensions.bzl"
+              android_build="$KERNEL_ROOT/soc-repo/kleaf-scripts/android_build.bzl"
               dt_build="$KERNEL_ROOT/qcom/opensource/devicetree/BUILD.bazel"
               dt_map="$KERNEL_ROOT/qcom/opensource/devicetree/qcom/platform_map.bzl"
               [ -f "$dt_extensions" ] || {
                 echo "::error::missing Canoe Kleaf DT extensions: $dt_extensions"; exit 1;
+              }
+              [ -f "$android_build" ] || {
+                echo "::error::missing Canoe android_build.bzl: $android_build"; exit 1;
               }
               [ -f "$dt_build" ] || {
                 echo "::error::missing Qualcomm DT BUILD.bazel: $dt_build"; exit 1;
@@ -1260,6 +1264,7 @@ jobs:
                 echo "::error::missing Canoe platform_map.bzl: $dt_map"; exit 1;
               }
               python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$dt_extensions"
+              python3 "$GITHUB_WORKSPACE/.github/scripts/normalize-canoe-dt.py" "$android_build"
               echo "Нормализованы Canoe DT labels: qcom/opensource/devicetree"
               git init "$KERNEL_ROOT/common"
               git -C "$KERNEL_ROOT/common" config user.name "ABK Custom Source"
