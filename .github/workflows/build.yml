@@ -1257,6 +1257,28 @@ jobs:
               [ -e "$doc_bindings" ] || {
                 echo "::error::Canoe DT bindings symlink does not resolve: $doc_bindings -> $(readlink "$doc_bindings")"; exit 1;
               }
+              while IFS= read -r -d '' symlink; do
+                target="$(readlink "$symlink")"
+                case "$target" in
+                  *kernel_platform/common/*)
+                    suffix="${target#*kernel_platform/common/}"
+                    relocated_target="$KERNEL_ROOT/common/$suffix"
+                    ;;
+                  *kernel_platform/soc-repo/*)
+                    suffix="${target#*kernel_platform/soc-repo/}"
+                    relocated_target="$KERNEL_ROOT/soc-repo/$suffix"
+                    ;;
+                  *)
+                    continue
+                    ;;
+                esac
+                [ -e "$relocated_target" ] || {
+                  echo "::error::relocated donor symlink target is missing: $symlink -> $relocated_target"; exit 1;
+                }
+                new_target="$(python3 -c 'import os, sys; print(os.path.relpath(sys.argv[2], os.path.dirname(sys.argv[1])))' "$symlink" "$relocated_target")"
+                rm -f "$symlink"
+                ln -s "$new_target" "$symlink"
+              done < <(find "$KERNEL_ROOT/../vendor" -type l -print0)
               dfr_include="$KERNEL_ROOT/../vendor/oplus/kernel/dfr/soc/oplus/dfr/include"
               dfr_include_target="$KERNEL_ROOT/../vendor/oplus/kernel/dfr/include"
               if [ -L "$dfr_include" ] && [ ! -e "$dfr_include" ] && [ -d "$dfr_include_target" ]; then
