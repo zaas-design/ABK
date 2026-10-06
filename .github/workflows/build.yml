@@ -6698,9 +6698,10 @@ jobs:
               echo "=== Bazel preflight passed; starting full build ==="
               tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG "$BUILD_TARGET" || exit 1
               if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
-                ABK_KERNEL_DIST="$KERNEL_ROOT/bazel-bin/soc-repo/canoe_perf_dist"
+                echo "=== Materializing kernel dist directory ==="
+                tools/bazel run --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG "$BUILD_TARGET"
+                ABK_KERNEL_DIST="$KERNEL_ROOT/out/msm-kernel-canoe-perf/dist"
                 [ -d "$ABK_KERNEL_DIST" ] || ABK_KERNEL_DIST="$KERNEL_ROOT/bazel-bin/soc-repo/out/msm-kernel-canoe-perf/dist"
-                [ -d "$ABK_KERNEL_DIST" ] || ABK_KERNEL_DIST="$KERNEL_ROOT/out/msm-kernel-canoe-perf/dist"
                 [ -d "$ABK_KERNEL_DIST" ] || { echo "::error::Canoe dist directory not found"; exit 1; }
                 echo "ABK_KERNEL_DIST=$ABK_KERNEL_DIST" >> "$GITHUB_ENV"
                 strings "$ABK_KERNEL_DIST/Image" | grep 'Linux version'
