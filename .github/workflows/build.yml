@@ -27,6 +27,10 @@ on:
         required: false
         type: boolean
         default: false
+      trust_tb323fu_stock_gki_modules:
+        required: false
+        type: boolean
+        default: false
       source_commit:
         required: false
         type: string
@@ -4184,6 +4188,73 @@ jobs:
           fi
 
           sed -i 's/check_defconfig//' ./common/build.config.gki
+
+      - name: Доверять штатным GKI-модулям TB323FU
+        if: inputs.trust_tb323fu_stock_gki_modules
+        working-directory: ${{ env.KERNEL_ROOT }}
+        env:
+          SOURCE_MODE: ${{ inputs.source_mode }}
+          SOURCE_LAYOUT: ${{ inputs.source_layout }}
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          DEVICE_LABEL: ${{ inputs.source_device_label }}
+          ANDROID_VERSION: ${{ inputs.android_version }}
+          KERNEL_VERSION: ${{ inputs.kernel_version }}
+          KSU_VARIANT: ${{ inputs.ksu_variant }}
+          VIRTUALIZATION_SUPPORT: ${{ inputs.virtualization_support }}
+          USE_ZRAM: ${{ inputs.use_zram }}
+          USE_BBG: ${{ inputs.use_bbg }}
+          USE_DDK: ${{ inputs.use_ddk }}
+          USE_NTSYNC: ${{ inputs.use_ntsync }}
+          USE_NETWORKING: ${{ inputs.use_networking }}
+          USE_KPM: ${{ inputs.use_kpm }}
+          USE_REKERNEL: ${{ inputs.use_rekernel }}
+          ENABLE_SUSFS: ${{ inputs.enable_susfs }}
+          CUSTOM_EXTERNAL_MODULES: ${{ inputs.custom_external_modules }}
+          CUSTOM_KERNEL_OPTIONS: ${{ inputs.custom_kernel_options }}
+        run: |
+          set -euo pipefail
+          [ "$SOURCE_MODE" = custom_git ] && [ "$SOURCE_LAYOUT" = common ] || {
+            echo "::error::Stock TB323FU module trust only applies to the pinned common K0 build."; exit 1;
+          }
+          [ "$SOURCE_REPO" = https://android.googlesource.com/kernel/common ] || {
+            echo "::error::Unexpected repository for TB323FU K0."; exit 1;
+          }
+          [ "$SOURCE_COMMIT" = 1750f757fabea014ecc59d327c0c9d3c15ab1e6d ] || {
+            echo "::error::Unexpected kernel commit for TB323FU K0."; exit 1;
+          }
+          [ -z "$DEVICE_LABEL" ] && [ "$ANDROID_VERSION" = android16 ] && [ "$KERNEL_VERSION" = 6.12 ] || {
+            echo "::error::TB323FU stock module trust requires android16-6.12 for TB323FU."; exit 1;
+          }
+          [ "$KSU_VARIANT" = None ] && [ "$VIRTUALIZATION_SUPPORT" = off ] || {
+            echo "::error::The K0 trust test must not include KernelSU or virtualization."; exit 1;
+          }
+          [ "$USE_ZRAM" = false ] && [ "$USE_BBG" = false ] && [ "$USE_DDK" = false ] \
+            && [ "$USE_NTSYNC" = false ] && [ "$USE_NETWORKING" = false ] \
+            && [ "$USE_KPM" = false ] && [ "$USE_REKERNEL" = false ] \
+            && [ "$ENABLE_SUSFS" = false ] && [ -z "$CUSTOM_EXTERNAL_MODULES" ] \
+            && [ -z "$CUSTOM_KERNEL_OPTIONS" ] || {
+              echo "::error::Disable optional features for the TB323FU K0 trust test."; exit 1;
+            }
+          cert="$GITHUB_WORKSPACE/.github/certs/TB323FU-043-stock-gki-module-signing.pem"
+          [ -s "$cert" ] && [ -s "$DEFCONFIG" ] || {
+            echo "::error::Stock signer certificate or GKI defconfig is missing."; exit 1;
+          }
+          cert_sha="$(openssl x509 -in "$cert" -outform DER | sha256sum | awk '{print $1}')"
+          [ "$cert_sha" = 82831e1d21cb5ab7a69f76cbabcad4da12d3e95cab109764faab7fced5fd0d08 ] || {
+            echo "::error::The TB323FU stock signer certificate hash does not match."; exit 1;
+          }
+          mkdir -p common/certs
+          install -m 0644 "$cert" common/certs/TB323FU-043-stock-gki-module-signing.pem
+          grep -q '^CONFIG_SYSTEM_TRUSTED_KEYS=' "$DEFCONFIG" || {
+            echo "::error::Expected trusted-key Kconfig entry was not found."; exit 1;
+          }
+          sed -i.bak '/^CONFIG_SYSTEM_TRUSTED_KEYS=/d' "$DEFCONFIG"
+          rm -f "$DEFCONFIG.bak"
+          printf '%s\n' 'CONFIG_SYSTEM_TRUSTED_KEYS="certs/TB323FU-043-stock-gki-module-signing.pem"' >> "$DEFCONFIG"
+          grep -qF 'CONFIG_SYSTEM_TRUSTED_KEYS="certs/TB323FU-043-stock-gki-module-signing.pem"' "$DEFCONFIG"
+          echo "Trusted stock TB323FU GKI signer certificate: $cert_sha"
+          echo "Stock signer certificate SHA-256: $cert_sha" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 配置 KPM 超级密码
         if: inputs.use_kpm && inputs.kpm_password != '' && (inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'ReSukiSU')

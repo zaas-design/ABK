@@ -26,6 +26,11 @@ on:
         required: true
         type: boolean
         default: false
+      trust_tb323fu_stock_gki_modules:
+        description: "Доверять подписанным GKI-модулям stock TB323FU (.043); только для контрольной пересборки K0"
+        required: true
+        type: boolean
+        default: false
       defconfigs:
         description: "相对于 arch/arm64/configs 的配置文件，每行一个，必须包含 gki_defconfig"
         required: true
@@ -292,6 +297,7 @@ jobs:
       source_repo: ${{ needs.preflight.outputs.source_url }}
       source_ref: ${{ needs.preflight.outputs.source_ref }}
       source_private: ${{ inputs.source_private }}
+      trust_tb323fu_stock_gki_modules: ${{ inputs.trust_tb323fu_stock_gki_modules }}
       source_commit: ${{ needs.preflight.outputs.source_commit }}
       source_defconfigs: ${{ inputs.defconfigs }}
       source_device_label: ${{ inputs.version }}
