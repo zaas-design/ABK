@@ -33,14 +33,15 @@ CONFIG_RE = re.compile(r'^\s*"(CONFIG_[A-Z0-9_]+)"\s*:\s*"([ymn])"', re.M)
 # The donor registry attaches this optional virtualization-backed memory
 # buffer to a large number of otherwise unrelated DDK modules.  It is not a
 # TB323FU hardware dependency: the stock .043 module inventory and the boot
-# failure logs contain no Gunyah or mem_buf provider.  Keep it out of the
-# selective runtime closure until device evidence requires it.
+# failure logs contain no Gunyah, mem_buf, or dma-buf heap provider.  Keep it
+# out of the selective runtime closure until device evidence requires it.
 EXCLUDED_MODULE_PREFIXES = (
     "drivers/virt/gunyah/",
     "arch/arm64/gunyah/",
     "drivers/soc/qcom/mem_buf/",
+    "drivers/dma-buf/heaps/",
 )
-EXCLUDED_CONFIG_PREFIXES = ("CONFIG_GH_",)
+EXCLUDED_CONFIG_PREFIXES = ("CONFIG_GH_", "CONFIG_QCOM_DMABUF_HEAPS")
 EXCLUDED_CONFIGS = {
     "CONFIG_QCOM_MEM_BUF_DEV",
     "CONFIG_QCOM_MEM_BUF_DEV_GH",
