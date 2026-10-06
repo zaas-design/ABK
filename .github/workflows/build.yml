@@ -4242,10 +4242,10 @@ jobs:
           }
           mkdir -p common/certs
           install -m 0644 "$cert" common/certs/TB323FU-043-stock-gki-module-signing.pem
-          grep -q '^CONFIG_SYSTEM_TRUSTED_KEYS=' "$DEFCONFIG" || {
-            echo "::error::Expected trusted-key Kconfig entry was not found."; exit 1;
-          }
-          sed -i.bak '/^CONFIG_SYSTEM_TRUSTED_KEYS=/d' "$DEFCONFIG"
+          sed -i.bak \
+            -e '/^CONFIG_SYSTEM_TRUSTED_KEYS=/d' \
+            -e '/^# CONFIG_SYSTEM_TRUSTED_KEYS is not set$/d' \
+            "$DEFCONFIG"
           rm -f "$DEFCONFIG.bak"
           printf '%s\n' 'CONFIG_SYSTEM_TRUSTED_KEYS="certs/TB323FU-043-stock-gki-module-signing.pem"' >> "$DEFCONFIG"
           grep -qF 'CONFIG_SYSTEM_TRUSTED_KEYS="certs/TB323FU-043-stock-gki-module-signing.pem"' "$DEFCONFIG"
