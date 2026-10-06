@@ -1378,9 +1378,9 @@ jobs:
               python3 "$GITHUB_WORKSPACE/.github/scripts/generate-canoe-runtime-config.py" \
                 --soc-repo "$KERNEL_ROOT/soc-repo" \
                 --output "$KERNEL_ROOT/soc-repo/configs/canoe_runtime.bzl"
-              if grep -Eq 'CONFIG_(GH_|QCOM_MEM_BUF|QCOM_DMABUF_HEAPS|QCOM_LAZY_MAPPING)' \
+              if grep -Eq 'CONFIG_(GH_|QCOM_MEM_BUF|QCOM_DMABUF_HEAPS|QCOM_LAZY_MAPPING|QCOM_MINIDUMP)' \
                 "$KERNEL_ROOT/soc-repo/configs/canoe_runtime.bzl"; then
-                echo "::error::optional Gunyah/mem_buf/dma-buf heap configs leaked into the selective Canoe runtime profile"
+                echo "::error::optional Gunyah/mem_buf/dma-buf/minidump configs leaked into the selective Canoe runtime profile"
                 exit 1
               fi
               python3 "$GITHUB_WORKSPACE/.github/scripts/patch-canoe-runtime-target.py" \

@@ -40,11 +40,16 @@ EXCLUDED_MODULE_PREFIXES = (
     "arch/arm64/gunyah/",
     "drivers/soc/qcom/mem_buf/",
     "drivers/dma-buf/heaps/",
+    # The donor's minidump implementation is downstream-only: it references
+    # stack/suspend registration APIs that are not present in kernel/common.
+    # It is diagnostic-only and is not required by the TB323FU runtime path.
+    "drivers/soc/qcom/minidump",
 )
 EXCLUDED_CONFIG_PREFIXES = (
     "CONFIG_GH_",
     "CONFIG_QCOM_MEM_BUF",
     "CONFIG_QCOM_DMABUF_HEAPS",
+    "CONFIG_QCOM_MINIDUMP",
 )
 EXCLUDED_CONFIGS = {
     "CONFIG_QCOM_LAZY_MAPPING",
