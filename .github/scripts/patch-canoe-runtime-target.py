@@ -23,6 +23,7 @@ def define_canoe_runtime():
         perf_config = canoe_runtime_config,
         consolidate_build_img_opts = runtime_perf_opts,
         perf_build_img_opts = runtime_perf_opts,
+        dtb_target = "canoe",
     )
 '''
 
@@ -58,14 +59,33 @@ def patch_build(path: Path) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def patch_android_build(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    old_signature = "        consolidate_build_img_opts = None,\n        perf_build_img_opts = None,\n        **kwargs):"
+    new_signature = "        consolidate_build_img_opts = None,\n        perf_build_img_opts = None,\n        dtb_target = None,\n        **kwargs):"
+    if old_signature in text:
+        text = text.replace(old_signature, new_signature, 1)
+    elif new_signature not in text:
+        raise SystemExit("cannot find define_typical_android_build signature")
+    old_call = "        dtb_target = name,\n        **kwargs"
+    new_call = "        dtb_target = dtb_target if dtb_target != None else name,\n        **kwargs"
+    if old_call in text:
+        text = text.replace(old_call, new_call, 1)
+    elif new_call not in text:
+        raise SystemExit("cannot find define_typical_android_build dtb call")
+    path.write_text(text, encoding="utf-8")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--canoe", type=Path, required=True)
     parser.add_argument("--build", type=Path, required=True)
+    parser.add_argument("--android-build", type=Path, required=True)
     args = parser.parse_args()
     patch_canoe(args.canoe)
     patch_build(args.build)
-    print(f"patched selective Canoe target in {args.canoe} and {args.build}")
+    patch_android_build(args.android_build)
+    print(f"patched selective Canoe target in {args.canoe}, {args.build}, and {args.android_build}")
 
 
 if __name__ == "__main__":

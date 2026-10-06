@@ -1380,7 +1380,8 @@ jobs:
                 --output "$KERNEL_ROOT/soc-repo/configs/canoe_runtime.bzl"
               python3 "$GITHUB_WORKSPACE/.github/scripts/patch-canoe-runtime-target.py" \
                 --canoe "$KERNEL_ROOT/soc-repo/kleaf-scripts/targets/canoe.bzl" \
-                --build "$KERNEL_ROOT/soc-repo/BUILD.bazel"
+                --build "$KERNEL_ROOT/soc-repo/BUILD.bazel" \
+                --android-build "$KERNEL_ROOT/soc-repo/kleaf-scripts/android_build.bzl"
               echo "Нормализованы Canoe DT labels: qcom/opensource/devicetree"
               git init "$KERNEL_ROOT/common"
               git -C "$KERNEL_ROOT/common" config user.name "ABK Custom Source"
