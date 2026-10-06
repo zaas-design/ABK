@@ -4197,6 +4197,7 @@ jobs:
           ANDROID_VERSION: ${{ inputs.android_version }}
           KERNEL_VERSION: ${{ inputs.kernel_version }}
           KSU_VARIANT: ${{ inputs.ksu_variant }}
+          KSU_BRANCH: ${{ inputs.ksu_branch }}
           VIRTUALIZATION_SUPPORT: ${{ inputs.virtualization_support }}
           USE_ZRAM: ${{ inputs.use_zram }}
           USE_BBG: ${{ inputs.use_bbg }}
@@ -4222,15 +4223,27 @@ jobs:
           [ -z "$DEVICE_LABEL" ] && [ "$ANDROID_VERSION" = android16 ] && [ "$KERNEL_VERSION" = 6.12 ] || {
             echo "::error::TB323FU stock module trust requires android16-6.12 for TB323FU."; exit 1;
           }
-          [ "$KSU_VARIANT" = None ] && [ "$VIRTUALIZATION_SUPPORT" = off ] || {
-            echo "::error::The K0 trust test must not include KernelSU or virtualization."; exit 1;
+          [ "$VIRTUALIZATION_SUPPORT" = off ] || {
+            echo "::error::TB323FU trusted K0/K1 must keep virtualization disabled."; exit 1;
           }
+          case "$KSU_VARIANT" in
+            None) ;;
+            ReSukiSU)
+              [ "$KSU_BRANCH" = "Stable(标准)" ] \
+                && [ "$RESOLVED_KSU_SHA" = 6d18926ae6eeb571a04c1ce7552c324d606fa9d8 ] || {
+                  echo "::error::TB323FU ReSukiSU build requires the pinned Stable commit 6d18926ae6eeb571a04c1ce7552c324d606fa9d8."; exit 1;
+                }
+              ;;
+            *)
+              echo "::error::TB323FU trusted variant allows only no KSU or pinned ReSukiSU."; exit 1;
+              ;;
+          esac
           [ "$USE_ZRAM" = false ] && [ "$USE_BBG" = false ] && [ "$USE_DDK" = false ] \
             && [ "$USE_NTSYNC" = false ] && [ "$USE_NETWORKING" = false ] \
             && [ "$USE_KPM" = false ] && [ "$USE_REKERNEL" = false ] \
             && [ "$ENABLE_SUSFS" = false ] && [ -z "$CUSTOM_EXTERNAL_MODULES" ] \
             && [ "$CUSTOM_KERNEL_OPTIONS" = TB323FU043_STOCK_GKI_TRUST ] || {
-              echo "::error::Disable optional features for the TB323FU K0 trust test."; exit 1;
+              echo "::error::Disable optional features for the TB323FU trusted K0/K1 test."; exit 1;
             }
           cert="$GITHUB_WORKSPACE/.github/certs/TB323FU-043-stock-gki-module-signing.pem"
           [ -s "$cert" ] && [ -s "$DEFCONFIG" ] || {
