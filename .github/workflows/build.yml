@@ -1370,6 +1370,17 @@ jobs:
               [ -f "$KERNEL_ROOT/oplus/bazel/oplus_modules_variant.bzl" ] || {
                 echo "::error::Oplus variant generator did not create oplus_modules_variant.bzl"; exit 1;
               }
+              # Build the requested runtime control profile instead of the
+              # full Oplus/canoe_perf module set. The generated fragment keeps
+              # the dependency closure for the Canoe providers implicated by
+              # TB323FU logs (PAS, WCD/SoundWire, clocks, interconnect,
+              # pinctrl and PCIe) and records its exact module/config counts.
+              python3 "$GITHUB_WORKSPACE/.github/scripts/generate-canoe-runtime-config.py" \
+                --soc-repo "$KERNEL_ROOT/soc-repo" \
+                --output "$KERNEL_ROOT/soc-repo/configs/canoe_runtime.bzl"
+              python3 "$GITHUB_WORKSPACE/.github/scripts/patch-canoe-runtime-target.py" \
+                --canoe "$KERNEL_ROOT/soc-repo/kleaf-scripts/targets/canoe.bzl" \
+                --build "$KERNEL_ROOT/soc-repo/BUILD.bazel"
               echo "Нормализованы Canoe DT labels: qcom/opensource/devicetree"
               git init "$KERNEL_ROOT/common"
               git -C "$KERNEL_ROOT/common" config user.name "ABK Custom Source"
@@ -6697,7 +6708,7 @@ jobs:
               fi
               BUILD_TARGET="//common:kernel_aarch64_dist"
               if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
-                BUILD_TARGET="//soc-repo:canoe_perf_dist"
+                BUILD_TARGET="//soc-repo:canoe_runtime_perf_dist"
               fi
               echo "=== Bazel analysis-only preflight ==="
               tools/bazel build --nobuild --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG "$BUILD_TARGET"
@@ -6706,8 +6717,8 @@ jobs:
               if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
                 echo "=== Materializing kernel dist directory ==="
                 tools/bazel run --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG "$BUILD_TARGET"
-                ABK_KERNEL_DIST="$KERNEL_ROOT/out/msm-kernel-canoe-perf/dist"
-                [ -d "$ABK_KERNEL_DIST" ] || ABK_KERNEL_DIST="$KERNEL_ROOT/bazel-bin/soc-repo/out/msm-kernel-canoe-perf/dist"
+                ABK_KERNEL_DIST="$KERNEL_ROOT/out/msm-kernel-canoe-runtime-perf/dist"
+                [ -d "$ABK_KERNEL_DIST" ] || ABK_KERNEL_DIST="$KERNEL_ROOT/bazel-bin/soc-repo/out/msm-kernel-canoe-runtime-perf/dist"
                 [ -d "$ABK_KERNEL_DIST" ] || { echo "::error::Canoe dist directory not found"; exit 1; }
                 echo "ABK_KERNEL_DIST=$ABK_KERNEL_DIST" >> "$GITHUB_ENV"
                 strings "$ABK_KERNEL_DIST/Image" | grep 'Linux version'
@@ -6896,7 +6907,7 @@ jobs:
           find "$KERNEL_ROOT/out" "$KERNEL_ROOT/bazel-bin" -type f \( -name 'Image' -o -name 'Image.lz4' -o -name 'Image.gz' \) -print0 2>/dev/null \
             | while IFS= read -r -d '' file; do sha256sum "$file"; done > "$DIAG/image-sha256.txt" || true
 
-          strings "$KERNEL_ROOT"/out/*/dist/Image "$KERNEL_ROOT"/bazel-bin/common/kernel_aarch64/Image "$KERNEL_ROOT"/bazel-bin/soc-repo/out/msm-kernel-canoe-perf/dist/Image 2>/dev/null \
+          strings "$KERNEL_ROOT"/out/*/dist/Image "$KERNEL_ROOT"/bazel-bin/common/kernel_aarch64/Image "$KERNEL_ROOT"/bazel-bin/soc-repo/out/msm-kernel-canoe-runtime-perf/dist/Image 2>/dev/null \
             | grep -m1 'Linux version' > "$DIAG/kernel-release.txt" || true
 
       - name: 准备 Boot 镜像
