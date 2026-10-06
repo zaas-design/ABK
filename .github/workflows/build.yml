@@ -1387,7 +1387,10 @@ jobs:
                 --canoe "$KERNEL_ROOT/soc-repo/kleaf-scripts/targets/canoe.bzl" \
                 --build "$KERNEL_ROOT/soc-repo/BUILD.bazel" \
                 --android-build "$KERNEL_ROOT/soc-repo/kleaf-scripts/android_build.bzl" \
-                --kernel-extensions "$KERNEL_ROOT/soc-repo/kleaf-scripts/msm_kernel_extensions.bzl"
+                --kernel-extensions "$KERNEL_ROOT/soc-repo/kleaf-scripts/msm_kernel_extensions.bzl" \
+                --remoteproc-modules "$KERNEL_ROOT/soc-repo/drivers/remoteproc/modules.bzl" \
+                --qcom-modules "$KERNEL_ROOT/soc-repo/drivers/soc/qcom/modules.bzl" \
+                --remoteproc-common "$KERNEL_ROOT/soc-repo/drivers/remoteproc/qcom_common.h"
               grep -q '"canoe"[[:space:]]*:' \
                 "$KERNEL_ROOT/qcom/opensource/devicetree/qcom/platform_map.bzl" || {
                 echo "::error::Canoe target is absent from platform_map.bzl"; exit 1;
@@ -6736,8 +6739,8 @@ jobs:
               if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
                 echo "=== Materializing kernel dist directory ==="
                 tools/bazel run --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG "$BUILD_TARGET"
-                ABK_KERNEL_DIST="$KERNEL_ROOT/out/msm-kernel-canoe-runtime-perf/dist"
-                [ -d "$ABK_KERNEL_DIST" ] || ABK_KERNEL_DIST="$KERNEL_ROOT/bazel-bin/soc-repo/out/msm-kernel-canoe-runtime-perf/dist"
+                ABK_KERNEL_DIST="$KERNEL_ROOT/out/msm-kernel-canoe_runtime-perf/dist"
+                [ -d "$ABK_KERNEL_DIST" ] || ABK_KERNEL_DIST="$KERNEL_ROOT/bazel-bin/soc-repo/out/msm-kernel-canoe_runtime-perf/dist"
                 [ -d "$ABK_KERNEL_DIST" ] || { echo "::error::Canoe dist directory not found"; exit 1; }
                 echo "ABK_KERNEL_DIST=$ABK_KERNEL_DIST" >> "$GITHUB_ENV"
                 strings "$ABK_KERNEL_DIST/Image" | grep 'Linux version'

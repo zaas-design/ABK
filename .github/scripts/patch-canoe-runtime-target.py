@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 from pathlib import Path
 
 
@@ -126,17 +127,74 @@ def patch_kernel_extensions(path: Path) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def patch_donor_oplus_hooks(
+    remoteproc_modules: Path | None,
+    qcom_modules: Path | None,
+    remoteproc_common: Path | None,
+) -> None:
+    """Remove donor-only Oplus hooks from the two selected runtime modules."""
+
+    def module_block(text: str, name: str) -> tuple[str, str, str]:
+        marker = f'name = "{name}"'
+        start = text.find(marker)
+        if start < 0:
+            raise SystemExit(f"cannot find donor module registration: {name}")
+        block_start = text.rfind("    registry.register(", 0, start)
+        block_end = text.find("\n    registry.register(", start)
+        if block_end < 0:
+            block_end = len(text)
+        return text[:block_start], text[block_start:block_end], text[block_end:]
+
+    def strip_hooks(path: Path, name: str) -> None:
+        text = path.read_text(encoding="utf-8")
+        prefix, block, suffix = module_block(text, name)
+        block = re.sub(r"\n\s*# Add for oplus[^\n]*", "", block)
+        block = re.sub(r"\n\s*\"//vendor/oplus/[^\"]+\",", "", block)
+        block = re.sub(
+            r"\n\s*copts = \[\"-DCONFIG_OPLUS_FEATURE_MM_FEEDBACK\",\s*"
+            r"\n\s*\"-DOPLUS_FEATURE_RECORD_MDMRST\"\],",
+            "",
+            block,
+        )
+        block = re.sub(
+            r"\n\s*copts = \[\"-DCONFIG_OPLUS_FEATURE_MM_FEEDBACK\"\],",
+            "",
+            block,
+        )
+        path.write_text(prefix + block + suffix, encoding="utf-8")
+
+    if remoteproc_modules is not None:
+        strip_hooks(remoteproc_modules, "drivers/remoteproc/qcom_q6v5")
+    if qcom_modules is not None:
+        strip_hooks(qcom_modules, "drivers/soc/qcom/wcd_usbss_i2c")
+    if remoteproc_common is not None:
+        text = remoteproc_common.read_text(encoding="utf-8")
+        old = "#ifndef  OPLUS_FEATURE_MODEM_MINIDUMP\n#define OPLUS_FEATURE_MODEM_MINIDUMP\n#endif\n"
+        if old in text:
+            remoteproc_common.write_text(text.replace(old, "", 1), encoding="utf-8")
+        elif "OPLUS_FEATURE_MODEM_MINIDUMP" in text:
+            raise SystemExit("cannot find donor OPLUS_FEATURE_MODEM_MINIDUMP define")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--canoe", type=Path, required=True)
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--android-build", type=Path, required=True)
     parser.add_argument("--kernel-extensions", type=Path, required=True)
+    parser.add_argument("--remoteproc-modules", type=Path)
+    parser.add_argument("--qcom-modules", type=Path)
+    parser.add_argument("--remoteproc-common", type=Path)
     args = parser.parse_args()
     patch_canoe(args.canoe)
     patch_build(args.build)
     patch_android_build(args.android_build)
     patch_kernel_extensions(args.kernel_extensions)
+    patch_donor_oplus_hooks(
+        args.remoteproc_modules,
+        args.qcom_modules,
+        args.remoteproc_common,
+    )
     print(
         "patched selective Canoe target in "
         f"{args.canoe}, {args.build}, {args.android_build}, and {args.kernel_extensions}"
