@@ -24,6 +24,7 @@ def define_canoe_runtime():
         consolidate_build_img_opts = runtime_perf_opts,
         perf_build_img_opts = runtime_perf_opts,
         dtb_target = "canoe",
+        module_list_target = "canoe",
     )
 '''
 
@@ -61,6 +62,19 @@ def patch_build(path: Path) -> None:
 
 def patch_android_build(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
+    old_single_signature = "        implicit_config_fragment = None,\n        config_path = None):"
+    new_single_signature = "        implicit_config_fragment = None,\n        config_path = None,\n        module_list_target = None):"
+    if old_single_signature in text:
+        text = text.replace(old_single_signature, new_single_signature, 1)
+    elif new_single_signature not in text:
+        raise SystemExit("cannot find define_single_android_build signature")
+    old_stem = '    stem = "{}_{}".format(name, variant)\n'
+    new_stem = old_stem + '    module_target = module_list_target if module_list_target != None else name\n'
+    if new_stem not in text:
+        if old_stem in text:
+            text = text.replace(old_stem, new_stem, 1)
+        else:
+            raise SystemExit("cannot find define_single_android_build stem")
     old_signature = "        consolidate_build_img_opts = None,\n        perf_build_img_opts = None,\n        **kwargs):"
     new_signature = "        consolidate_build_img_opts = None,\n        perf_build_img_opts = None,\n        dtb_target = None,\n        **kwargs):"
     if old_signature in text:
@@ -73,6 +87,13 @@ def patch_android_build(path: Path) -> None:
         text = text.replace(old_call, new_call, 1)
     elif new_call not in text:
         raise SystemExit("cannot find define_typical_android_build dtb call")
+    for module_file in ("modules.list.msm", "modules.vendor_blocklist.msm", "modules.systemdlkm_blocklist.msm"):
+        old = '"modules-lists/{}.{{}}".format(name)'.format(module_file)
+        new = '"modules-lists/{}.{{}}".format(module_target)'.format(module_file)
+        if old in text:
+            text = text.replace(old, new)
+        elif new not in text:
+            raise SystemExit(f"cannot find module-list reference: {module_file}")
     path.write_text(text, encoding="utf-8")
 
 
