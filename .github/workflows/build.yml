@@ -1382,6 +1382,18 @@ jobs:
                 --canoe "$KERNEL_ROOT/soc-repo/kleaf-scripts/targets/canoe.bzl" \
                 --build "$KERNEL_ROOT/soc-repo/BUILD.bazel" \
                 --android-build "$KERNEL_ROOT/soc-repo/kleaf-scripts/android_build.bzl"
+              grep -q '"canoe"[[:space:]]*:' \
+                "$KERNEL_ROOT/qcom/opensource/devicetree/qcom/platform_map.bzl" || {
+                echo "::error::Canoe target is absent from platform_map.bzl"; exit 1;
+              }
+              for canoe_module_list in \
+                modules.list.msm.canoe \
+                modules.vendor_blocklist.msm.canoe \
+                modules.systemdlkm_blocklist.msm.canoe; do
+                [ -f "$KERNEL_ROOT/soc-repo/modules-lists/$canoe_module_list" ] || {
+                  echo "::error::missing canonical Canoe module list: $canoe_module_list"; exit 1;
+                }
+              done
               echo "Нормализованы Canoe DT labels: qcom/opensource/devicetree"
               git init "$KERNEL_ROOT/common"
               git -C "$KERNEL_ROOT/common" config user.name "ABK Custom Source"
