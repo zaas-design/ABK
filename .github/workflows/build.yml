@@ -27,10 +27,6 @@ on:
         required: false
         type: boolean
         default: false
-      trust_tb323fu_stock_gki_modules:
-        required: false
-        type: boolean
-        default: false
       source_commit:
         required: false
         type: string
@@ -267,7 +263,7 @@ jobs:
           echo "Re-Kernel     : ${{ inputs.use_rekernel }}"
           echo "虚拟化支持   : ${{ inputs.virtualization_support }}"
           echo "自定义注入    : ${{ inputs.custom_external_modules != '' }}"
-          echo "内核选项覆盖  : ${{ inputs.custom_kernel_options != '' }}"
+          echo "内核选项覆盖  : ${{ inputs.custom_kernel_options != '' && inputs.custom_kernel_options != 'TB323FU043_STOCK_GKI_TRUST' }}"
           echo "Stock Config  : 自动检测 config/stock_defconfig"
           echo "========================================"
 
@@ -4190,7 +4186,7 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
       - name: Доверять штатным GKI-модулям TB323FU
-        if: inputs.trust_tb323fu_stock_gki_modules
+        if: inputs.custom_kernel_options == 'TB323FU043_STOCK_GKI_TRUST'
         working-directory: ${{ env.KERNEL_ROOT }}
         env:
           SOURCE_MODE: ${{ inputs.source_mode }}
@@ -4233,7 +4229,7 @@ jobs:
             && [ "$USE_NTSYNC" = false ] && [ "$USE_NETWORKING" = false ] \
             && [ "$USE_KPM" = false ] && [ "$USE_REKERNEL" = false ] \
             && [ "$ENABLE_SUSFS" = false ] && [ -z "$CUSTOM_EXTERNAL_MODULES" ] \
-            && [ -z "$CUSTOM_KERNEL_OPTIONS" ] || {
+            && [ "$CUSTOM_KERNEL_OPTIONS" = TB323FU043_STOCK_GKI_TRUST ] || {
               echo "::error::Disable optional features for the TB323FU K0 trust test."; exit 1;
             }
           cert="$GITHUB_WORKSPACE/.github/certs/TB323FU-043-stock-gki-module-signing.pem"
@@ -4439,7 +4435,7 @@ jobs:
           fi
 
       - name: 应用自定义内核选项
-        if: inputs.custom_kernel_options != ''
+        if: inputs.custom_kernel_options != '' && inputs.custom_kernel_options != 'TB323FU043_STOCK_GKI_TRUST'
         working-directory: ${{ env.KERNEL_ROOT }}
         env:
           CUSTOM_KERNEL_OPTIONS: ${{ inputs.custom_kernel_options }}
