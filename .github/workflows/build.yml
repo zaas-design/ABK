@@ -1386,7 +1386,8 @@ jobs:
               python3 "$GITHUB_WORKSPACE/.github/scripts/patch-canoe-runtime-target.py" \
                 --canoe "$KERNEL_ROOT/soc-repo/kleaf-scripts/targets/canoe.bzl" \
                 --build "$KERNEL_ROOT/soc-repo/BUILD.bazel" \
-                --android-build "$KERNEL_ROOT/soc-repo/kleaf-scripts/android_build.bzl"
+                --android-build "$KERNEL_ROOT/soc-repo/kleaf-scripts/android_build.bzl" \
+                --kernel-extensions "$KERNEL_ROOT/soc-repo/kleaf-scripts/msm_kernel_extensions.bzl"
               grep -q '"canoe"[[:space:]]*:' \
                 "$KERNEL_ROOT/qcom/opensource/devicetree/qcom/platform_map.bzl" || {
                 echo "::error::Canoe target is absent from platform_map.bzl"; exit 1;

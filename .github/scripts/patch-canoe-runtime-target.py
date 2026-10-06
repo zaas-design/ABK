@@ -23,7 +23,7 @@ def define_canoe_runtime():
         perf_config = canoe_runtime_config,
         consolidate_build_img_opts = runtime_perf_opts,
         perf_build_img_opts = runtime_perf_opts,
-        dtb_target = "canoe",
+        dtb_target = "canoe_runtime",
         module_list_target = "canoe",
     )
 '''
@@ -97,16 +97,50 @@ def patch_android_build(path: Path) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def patch_kernel_extensions(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    old_dtb = '''def get_dtb_list(target):
+    return _get_dtb_list(target)
+'''
+    new_dtb = '''def get_dtb_list(target):
+    if target == "canoe_runtime":
+        return ["canoe.dtb"]
+    return _get_dtb_list(target)
+'''
+    if old_dtb in text:
+        text = text.replace(old_dtb, new_dtb, 1)
+    elif new_dtb not in text:
+        raise SystemExit("cannot find get_dtb_list in msm_kernel_extensions.bzl")
+    old_dtbo = '''def get_dtbo_list(target):
+    return _get_dtbo_list(target)
+'''
+    new_dtbo = '''def get_dtbo_list(target):
+    if target == "canoe_runtime":
+        return []
+    return _get_dtbo_list(target)
+'''
+    if old_dtbo in text:
+        text = text.replace(old_dtbo, new_dtbo, 1)
+    elif new_dtbo not in text:
+        raise SystemExit("cannot find get_dtbo_list in msm_kernel_extensions.bzl")
+    path.write_text(text, encoding="utf-8")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--canoe", type=Path, required=True)
     parser.add_argument("--build", type=Path, required=True)
     parser.add_argument("--android-build", type=Path, required=True)
+    parser.add_argument("--kernel-extensions", type=Path, required=True)
     args = parser.parse_args()
     patch_canoe(args.canoe)
     patch_build(args.build)
     patch_android_build(args.android_build)
-    print(f"patched selective Canoe target in {args.canoe}, {args.build}, and {args.android_build}")
+    patch_kernel_extensions(args.kernel_extensions)
+    print(
+        "patched selective Canoe target in "
+        f"{args.canoe}, {args.build}, {args.android_build}, and {args.kernel_extensions}"
+    )
 
 
 if __name__ == "__main__":
