@@ -1246,8 +1246,14 @@ jobs:
                 cp -a "$vendor_root" "$KERNEL_ROOT/../vendor"
                 ln -s "$vendor_target" "$KERNEL_ROOT/vendor"
               elif [ -d "$source_checkout/vendor" ]; then
-                rm -rf "$KERNEL_ROOT/vendor"
-                cp -a "$source_checkout/vendor" "$KERNEL_ROOT/vendor"
+                # This donor stores vendor/ beside kernel_platform/ at the
+                # checkout root. Keep that topology after relocation: the
+                # soc-repo symlinks resolve through ../../../../../vendor.
+                rm -rf "$KERNEL_ROOT/vendor" "$KERNEL_ROOT/../vendor"
+                cp -a "$source_checkout/vendor" "$KERNEL_ROOT/../vendor"
+                ln -s ../vendor "$KERNEL_ROOT/vendor"
+              else
+                echo "::error::kernel_platform source has no usable vendor tree"; exit 1
               fi
               doc_bindings="$KERNEL_ROOT/soc-repo/Documentation/devicetree/bindings"
               if [ -L "$doc_bindings" ] && [ ! -e "$doc_bindings" ]; then

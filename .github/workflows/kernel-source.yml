@@ -234,6 +234,19 @@ jobs:
               "$source_dir/kernel_platform/qcom/opensource/devicetree/qcom/platform_map.bzl"; do
               [ -e "$required" ] || { echo "::error::kernel_platform source is missing $required"; exit 1; }
             done
+            if [ -L "$source_dir/kernel_platform/vendor" ]; then
+              vendor_target="$(readlink "$source_dir/kernel_platform/vendor")"
+              vendor_root="$(cd "$(dirname "$source_dir/kernel_platform/vendor")" && pwd -P)/$vendor_target"
+              [ -d "$vendor_root" ] || {
+                echo "::error::kernel_platform vendor symlink target is missing: $vendor_target"; exit 1;
+              }
+            elif [ -d "$source_dir/vendor" ]; then
+              [ -d "$source_dir/vendor/oplus/kernel" ] || {
+                echo "::error::kernel_platform root vendor tree is missing vendor/oplus/kernel"; exit 1;
+              }
+            else
+              echo "::error::kernel_platform source must provide a vendor tree or kernel_platform/vendor symlink"; exit 1
+            fi
             grep -q 'define_canoe' "$source_dir/kernel_platform/soc-repo/BUILD.bazel" || {
               echo "::error::kernel_platform source does not define Canoe targets"; exit 1;
             }
