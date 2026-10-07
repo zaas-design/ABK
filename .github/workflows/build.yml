@@ -7057,7 +7057,7 @@ jobs:
           import pathlib, struct, sys
           module, payload, signature = map(pathlib.Path, sys.argv[1:])
           data = module.read_bytes()
-          magic = b"~Module signature appended\n"
+          magic = b"~Module signature appended~\n"
           footer_size = 12
           if not data.endswith(magic) or len(data) < len(magic) + footer_size:
               raise SystemExit("rust_binder.ko has no valid Linux module signature footer")
