@@ -4236,9 +4236,12 @@ jobs:
           [ -z "$DEVICE_LABEL" ] && [ "$ANDROID_VERSION" = android16 ] && [ "$KERNEL_VERSION" = 6.12 ] || {
             echo "::error::TB323FU stock module trust requires android16-6.12 for TB323FU."; exit 1;
           }
-          [ "$VIRTUALIZATION_SUPPORT" = off ] || {
-            echo "::error::TB323FU trusted K0/K1 must keep virtualization disabled."; exit 1;
-          }
+          case "$KERNEL_VERSION:$VIRTUALIZATION_SUPPORT" in
+            6.12:off|6.12:on) ;;
+            *)
+              echo "::error::TB323FU trusted GKI modules support only the pinned 6.12 build with DroidSpaces off or on."; exit 1;
+              ;;
+          esac
           case "$KSU_VARIANT" in
             None) ;;
             ReSukiSU)
