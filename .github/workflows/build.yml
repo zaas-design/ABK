@@ -6804,17 +6804,25 @@ jobs:
               esac
             fi
 
-            if [ "${{ inputs.source_mode }}" != "custom_git" ] || [ "${{ inputs.trust_tb323fu_stock_gki_modules }}" != "true" ]; then
-              sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/' ./common/build.config.gki.aarch64
-              sed -i '/MODULES_ORDER=android\/gki_aarch64_modules/d' ./common/build.config.gki.aarch64
-            else
-              grep -q '^BUILD_SYSTEM_DLKM=1$' ./common/build.config.gki.aarch64 || {
-                echo "::error::Trusted TB323FU GKI build must keep BUILD_SYSTEM_DLKM enabled."; exit 1;
-              }
-              grep -q '^MODULES_ORDER=android/gki_aarch64_modules$' ./common/build.config.gki.aarch64 || {
-                echo "::error::Trusted TB323FU GKI build must keep the stock GKI module order."; exit 1;
-              }
+            trusted_gki_modules=false
+            if [ "${{ inputs.source_mode }}" = "custom_git" ] && [ "${{ inputs.trust_tb323fu_stock_gki_modules }}" = "true" ]; then
+              trusted_gki_modules=true
             fi
+            python3 - ./common/build.config.gki.aarch64 "$trusted_gki_modules" <<'PYDLKM'
+            import pathlib, re, sys
+
+            path = pathlib.Path(sys.argv[1])
+            trusted = sys.argv[2] == "true"
+            lines = path.read_text(encoding="utf-8").splitlines()
+            assignment = re.compile(r"^\s*(?:export\s+)?(?:BUILD_SYSTEM_DLKM|MODULES_ORDER)\s*=")
+            lines = [line for line in lines if not assignment.match(line)]
+            lines.extend(["", f"BUILD_SYSTEM_DLKM={1 if trusted else 0}"])
+            if trusted:
+                lines.append("MODULES_ORDER=android/gki_aarch64_modules")
+            path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            print("Trusted TB323FU system_dlkm enabled with stock module order." if trusted else "system_dlkm disabled for this build profile.")
+            PYDLKM
+            grep -E '^(BUILD_SYSTEM_DLKM|MODULES_ORDER)=' ./common/build.config.gki.aarch64
             sed -i '/KMI_SYMBOL_LIST_STRICT_MODE/d' ./common/build.config.gki.aarch64
 
             if [ -f "build/build.sh" ]; then
