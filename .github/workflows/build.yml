@@ -6804,8 +6804,17 @@ jobs:
               esac
             fi
 
-            sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/' ./common/build.config.gki.aarch64
-            sed -i '/MODULES_ORDER=android\/gki_aarch64_modules/d' ./common/build.config.gki.aarch64
+            if [ "${{ inputs.source_mode }}" != "custom_git" ] || [ "${{ inputs.trust_tb323fu_stock_gki_modules }}" != "true" ]; then
+              sed -i 's/BUILD_SYSTEM_DLKM=1/BUILD_SYSTEM_DLKM=0/' ./common/build.config.gki.aarch64
+              sed -i '/MODULES_ORDER=android\/gki_aarch64_modules/d' ./common/build.config.gki.aarch64
+            else
+              grep -q '^BUILD_SYSTEM_DLKM=1$' ./common/build.config.gki.aarch64 || {
+                echo "::error::Trusted TB323FU GKI build must keep BUILD_SYSTEM_DLKM enabled."; exit 1;
+              }
+              grep -q '^MODULES_ORDER=android/gki_aarch64_modules$' ./common/build.config.gki.aarch64 || {
+                echo "::error::Trusted TB323FU GKI build must keep the stock GKI module order."; exit 1;
+              }
+            fi
             sed -i '/KMI_SYMBOL_LIST_STRICT_MODE/d' ./common/build.config.gki.aarch64
 
             if [ -f "build/build.sh" ]; then
@@ -6886,25 +6895,37 @@ jobs:
           esac
 
           image_backup="$TARGET_PATH/Image.abk-kpm-backup"
+          patch_log="$RUNNER_TEMP/kpm-patch.log"
           cp "$TARGET_PATH/Image" "$image_backup"
-          cp -r $SUKISU_PATCHES/kpm/patch_linux "$TARGET_PATH/patch"
+          cp "$SUKISU_PATCHES/kpm/patch_linux" "$TARGET_PATH/patch"
           cd "$TARGET_PATH"
-          chmod 777 patch
-          patch_ok=true
-          if ! { if [ -n "$KPM_PASSWORD" ]; then ./patch -s "$KPM_PASSWORD"; else ./patch; fi; }; then
-            patch_ok=false
+          chmod 755 patch
+          set +e
+          if [ -n "$KPM_PASSWORD" ]; then
+            ./patch -s "$KPM_PASSWORD" 2>&1 | tee "$patch_log"
+            patch_status=${PIPESTATUS[0]}
+          else
+            ./patch 2>&1 | tee "$patch_log"
+            patch_status=${PIPESTATUS[0]}
           fi
-          [ -f oImage ] || patch_ok=false
+          set -e
+          patch_ok=false
+          if [ -s oImage ] && ! cmp -s Image oImage \
+            && grep -qF 'patch done: oImage' "$patch_log" \
+            && grep -qF 'kpimg version:' "$patch_log"; then
+            source_banner="$(strings -a Image | awk '/^Linux version / && !found { sub(/^Linux version /, ""); sub(/ .*/, ""); print; found=1 }')"
+            patched_banner="$(strings -a oImage | awk '/^Linux version / && !found { sub(/^Linux version /, ""); sub(/ .*/, ""); print; found=1 }')"
+            [ -n "$source_banner" ] && [ "$source_banner" = "$patched_banner" ] && patch_ok=true
+          fi
           if [ "$patch_ok" != true ]; then
-            if [ "${{ inputs.source_mode }}" = "custom_git" ]; then
-              mv "$image_backup" Image
-              echo "::warning::KPM image patch failed; original Image restored."
-              exit 1
-            fi
+            mv "$image_backup" Image
+            echo "::error::KPM patch did not produce a verifiable patched Image (patch exit=$patch_status); original Image restored."
             exit 1
           fi
-          rm -rf Image
-          mv oImage Image
+          if [ "$patch_status" -ne 0 ]; then
+            echo "::warning::KPM patch_linux returned $patch_status after producing a changed Image with the explicit kpimg completion markers; output validation passed."
+          fi
+          mv -f oImage Image
           rm -f "$image_backup"
 
       - name: 导出匹配内核的 rust_binder.ko
@@ -6914,19 +6935,31 @@ jobs:
           SOURCE_COMMIT: ${{ inputs.source_commit }}
         run: |
           set -euo pipefail
+          if [ "${{ inputs.source_mode }}" = "custom_git" ] &&
+            [ "${{ inputs.trust_tb323fu_stock_gki_modules }}" = "true" ] &&
+            [ "${{ inputs.use_kpm }}" = "true" ]; then
+            python3 - "$ABK_CUSTOM_SOURCE_FEATURE_STATUS" <<'PYKPM'
+          import json, pathlib, sys
+          status = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          if status.get("effective", {}).get("kpm") is not True:
+              raise SystemExit("KPM was requested for the trusted TB323FU build but was skipped or rolled back")
+          PYKPM
+          fi
           module_root="$GITHUB_WORKSPACE/system-dlkm-modules"
           stock_cert="$GITHUB_WORKSPACE/.github/certs/TB323FU-043-stock-gki-module-signing.pem"
           if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
             dist_dir="${ABK_KERNEL_DIST:?Canoe dist directory was not set}"
+            final_image="$dist_dir/Image"
           else
-            dist_dir="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64"
+            dist_dir="$KERNEL_ROOT/out/kernel_aarch64/dist"
+            final_image="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64/Image"
           fi
           module_archive="$dist_dir/system_dlkm_staging_archive.tar.gz"
           [ -s "$module_archive" ] || {
-            echo "::error::The final dist system_dlkm_staging_archive.tar.gz is missing."; exit 1;
+            echo "::error::The final dist system_dlkm_staging_archive.tar.gz is missing from $dist_dir."; exit 1;
           }
-          [ -s "$dist_dir/Image" ] && [ -s "$dist_dir/vmlinux" ] || {
-            echo "::error::Final dist Image or vmlinux is missing."; exit 1;
+          [ -s "$final_image" ] && [ -s "$dist_dir/vmlinux" ] || {
+            echo "::error::Final Image or vmlinux is missing (Image=$final_image, dist=$dist_dir)."; exit 1;
           }
           mkdir -p "$module_root"
           mapfile -t binder_entries < <(tar -tzf "$module_archive" | grep -E '(^|/)rust_binder[.]ko$' || true)
@@ -6981,7 +7014,7 @@ jobs:
             echo "::error::rust_binder.ko is unsigned; refusing to publish an unusable system_dlkm module."; exit 1;
           }
           module_release="$(modinfo -F vermagic "$module_root/rust_binder.ko" | awk '{print $1}')"
-          kernel_release="$(strings -a "$dist_dir/Image" | sed -n 's/^Linux version \([^ ]*\).*/\1/p' | head -n1)"
+          kernel_release="$(strings -a "$final_image" | awk '/^Linux version / && !found { sub(/^Linux version /, ""); sub(/ .*/, ""); print; found=1 }')"
           [ -n "$kernel_release" ] && [ "$module_release" = "$kernel_release" ] || {
             echo "::error::rust_binder.ko vermagic ($module_release) does not match final Image release ($kernel_release)."; exit 1;
           }
@@ -7005,7 +7038,7 @@ jobs:
           openssl cms -verify -binary -inform DER -in "$RUNNER_TEMP/rust_binder.p7s" \
             -content "$RUNNER_TEMP/rust_binder.payload" -certfile "$stock_cert" -nointern -noverify -out /dev/null
 
-          image_sha256="$(sha256sum "$dist_dir/Image" | awk '{print $1}')"
+          image_sha256="$(sha256sum "$final_image" | awk '{print $1}')"
           printf 'source_commit=%s\nkernel_release=%s\nimage_sha256=%s\nmodule_sha256=%s\nmodule_signer=%s\nstock_gki_signer_sha256=%s\n' \
             "$SOURCE_COMMIT" "$kernel_release" "$image_sha256" \
             "$(sha256sum "$module_root/rust_binder.ko" | awk '{print $1}')" \
@@ -7173,7 +7206,7 @@ jobs:
           cp ./Image.gz ./bootimgs/Image.gz
 
           if [ "${{ inputs.source_mode }}" = "custom_git" ]; then
-            kernel_release="$(strings -a ./Image | sed -n 's/^Linux version \([^ ]*\).*/\1/p' | head -n1)"
+            kernel_release="$(strings -a ./Image | awk '/^Linux version / && !found { sub(/^Linux version /, ""); sub(/ .*/, ""); print; found=1 }')"
             [ -n "$kernel_release" ] || { echo "::error::Could not read full kernel.release from final Image"; exit 1; }
             image_sha256="$(sha256sum ./Image | awk '{print $1}')"
             printf 'kernel_release=%s\nimage_sha256=%s\n' "$kernel_release" "$image_sha256" > ./bootimgs/BUILD_INFO.txt
