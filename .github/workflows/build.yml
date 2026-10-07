@@ -6993,7 +6993,7 @@ jobs:
             echo "::error::Final Image or vmlinux is missing (Image=$final_image, dist=$dist_dir)."; exit 1;
           }
           mkdir -p "$module_root"
-          mapfile -t binder_entries < <(tar -tzf "$module_archive" | grep -E '(^|/)rust_binder[.]ko$' || true)
+          mapfile -t binder_entries < <(tar -tzf "$module_archive" | grep -E '^(\./)?lib/modules/[^/]+/kernel/drivers/android/rust_binder[.]ko$' || true)
           [ "${#binder_entries[@]}" -eq 1 ] || {
             echo "Binder-related entries in the final system_dlkm archive:"
             tar -tzf "$module_archive" | grep -iE 'binder|modules[.]load' || true
