@@ -1,6 +1,13 @@
 # TB323FU `.043`: сборка согласованного Binder-модуля
 
-Для профиля с совместимыми `boot` и `system_dlkm` workflow `Android 内核构建-类 LineageOS 源码` получил отдельный переключатель `trust_tb323fu_stock_gki_modules`. Он добавляет сертификат штатных GKI-модулей TB323FU в kernel trust store независимо от `custom_kernel_options`; старое значение `TB323FU043_STOCK_GKI_TRUST` оставлено для обратной совместимости.
+Для профиля с совместимыми `boot` и `system_dlkm` workflow `Android 内核构建-类 LineageOS 源码` распознаёт маркер `TB323FU043_STOCK_GKI_TRUST` в поле `custom_kernel_options`. Маркер занимает отдельную строку, а настройки ядра можно указать рядом:
+
+```text
+TB323FU043_STOCK_GKI_TRUST
+USER_NS=y
+```
+
+Маркер добавляет сертификат штатных GKI-модулей TB323FU в kernel trust store и удаляется до разбора Kconfig-настроек. Прежнее значение, состоящее только из маркера, также поддерживается.
 
 Флаг применим только к закреплённому `android16`/`6.12` исходнику `kernel/common` на commit `1750f757fabea014ecc59d327c0c9d3c15ab1e6d`, с выключенной виртуализацией. KPM и SUSFS можно включить вместе с ним при выбранном закреплённом ReSukiSU Stable. ZRAM, BBG, DDK, NTsync, network enhancements, Re-Kernel и пользовательские внешние модули для этого профиля должны оставаться выключенными.
 

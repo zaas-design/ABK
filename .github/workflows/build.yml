@@ -4199,7 +4199,7 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
       - name: Доверять штатным GKI-модулям TB323FU
-        if: inputs.trust_tb323fu_stock_gki_modules || inputs.custom_kernel_options == 'TB323FU043_STOCK_GKI_TRUST'
+        if: inputs.trust_tb323fu_stock_gki_modules || contains(inputs.custom_kernel_options, 'TB323FU043_STOCK_GKI_TRUST')
         working-directory: ${{ env.KERNEL_ROOT }}
         env:
           SOURCE_MODE: ${{ inputs.source_mode }}
@@ -4490,7 +4490,10 @@ jobs:
               path: path.read_text().splitlines()
               for path in config_files
           }
-          lines = os.environ["CUSTOM_KERNEL_OPTIONS"].replace("\r", "").splitlines()
+          lines = [
+              line for line in os.environ["CUSTOM_KERNEL_OPTIONS"].replace("\r", "").splitlines()
+              if line.strip() != "TB323FU043_STOCK_GKI_TRUST"
+          ]
 
           parsed = []
           disabled_re = re.compile(r"^#\s*(CONFIG_[A-Za-z0-9_]+)\s+is\s+not\s+set$", re.I)

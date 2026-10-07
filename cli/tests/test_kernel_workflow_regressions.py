@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "build.yml"
+SOURCE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "kernel-source.yml"
 REF_SCRIPT_PATH = ROOT / ".github" / "scripts" / "resolve-ksu-ref.sh"
 KSU_COMPAT_PATH = ROOT / ".github" / "scripts" / "ensure-ksu-compat.py"
 
@@ -15,6 +16,7 @@ class KernelWorkflowRegressionTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        cls.source_workflow = SOURCE_WORKFLOW_PATH.read_text(encoding="utf-8")
         cls.ref_script = REF_SCRIPT_PATH.read_text(encoding="utf-8")
         spec = importlib.util.spec_from_file_location("ensure_ksu_compat", KSU_COMPAT_PATH)
         cls.ksu_compat = importlib.util.module_from_spec(spec)
@@ -28,6 +30,19 @@ class KernelWorkflowRegressionTests(unittest.TestCase):
         self.assertNotIn('${BRANCH#-s }', case)
         self.assertIn('bash "$setup_script" "$requested_ref"', case)
         self.assertIn('requested_head="$(git -C KernelSU rev-parse', case)
+
+    def test_custom_source_dispatch_stays_within_github_input_limit(self):
+        match = re.search(
+            r"(?ms)^  workflow_dispatch:\n(?P<body>.*?)(?=^jobs:)",
+            self.source_workflow,
+        )
+        self.assertIsNotNone(match)
+        input_count = len(re.findall(r"(?m)^      [a-zA-Z0-9_-]+:", match.group("body")))
+        self.assertLessEqual(input_count, 25)
+        self.assertIn(
+            "trust_tb323fu_stock_gki_modules: ${{ contains(inputs.custom_kernel_options",
+            self.source_workflow,
+        )
 
     def test_development_refs_are_reachable_successful_main_builds(self):
         expected = {

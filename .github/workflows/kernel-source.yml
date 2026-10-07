@@ -100,11 +100,6 @@ on:
         required: true
         type: boolean
         default: false
-      trust_tb323fu_stock_gki_modules:
-        description: "Trust TB323FU .043 stock GKI module signer"
-        required: true
-        type: boolean
-        default: false
       use_rekernel:
         description: "启用 Re-Kernel"
         required: true
@@ -321,7 +316,7 @@ jobs:
       use_ntsync: ${{ inputs.use_ntsync }}
       use_networking: ${{ inputs.use_networking }}
       use_kpm: ${{ inputs.use_kpm }}
-      trust_tb323fu_stock_gki_modules: ${{ inputs.trust_tb323fu_stock_gki_modules }}
+      trust_tb323fu_stock_gki_modules: ${{ contains(inputs.custom_kernel_options, 'TB323FU043_STOCK_GKI_TRUST') }}
       use_rekernel: ${{ inputs.use_rekernel }}
       enable_susfs: ${{ !inputs.cancel_susfs && inputs.kernelsu_variant != 'None' }}
       supp_op: false
