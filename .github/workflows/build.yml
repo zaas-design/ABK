@@ -754,8 +754,9 @@ jobs:
                 CUSTOM_COMMIT=$(grep "^${SUSFS_BRANCH}=" "$CONFIG_FILE" | cut -d'=' -f2)
                 if [ -n "$CUSTOM_COMMIT" ]; then
                   echo "切换 SUSFS 到自定义提交: $CUSTOM_COMMIT"
+                  git -C susfs4ksu fetch --depth=1 origin "$CUSTOM_COMMIT"
                   cd susfs4ksu
-                  git checkout "$CUSTOM_COMMIT"
+                  git checkout --detach "$CUSTOM_COMMIT"
                   cd ..
                 fi
               fi
@@ -3359,7 +3360,15 @@ jobs:
           ABK_FEATURE_END: "false"
           ABK_FEATURE_FAILURE_MESSAGE: "Virtualization patch download failed"
         run: |
-          git clone --depth 1 https://github.com/ravindu644/Droidspaces-OSS.git /tmp/virtualization-support-patches
+          DROIDSPACES_COMMIT="2ac9f5af650ae20149d9d46606526d5b003ca626"
+          git init /tmp/virtualization-support-patches
+          git -C /tmp/virtualization-support-patches remote add origin https://github.com/ravindu644/Droidspaces-OSS.git
+          git -C /tmp/virtualization-support-patches fetch --depth=1 origin "$DROIDSPACES_COMMIT"
+          git -C /tmp/virtualization-support-patches checkout --detach FETCH_HEAD
+          RESOLVED_DROIDSPACES_COMMIT="$(git -C /tmp/virtualization-support-patches rev-parse HEAD)"
+          [ "$RESOLVED_DROIDSPACES_COMMIT" = "$DROIDSPACES_COMMIT" ]
+          echo "DROIDSPACES_COMMIT=$RESOLVED_DROIDSPACES_COMMIT" >> "$GITHUB_ENV"
+          echo "DroidSpaces revision: $RESOLVED_DROIDSPACES_COMMIT"
           echo "VIRTUALIZATION_SUPPORT_PATCHES=/tmp/virtualization-support-patches/Documentation/resources/kernel-patches/GKI" >> $GITHUB_ENV
 
       - name: 集成虚拟化支持
@@ -6897,6 +6906,7 @@ jobs:
           ABK_KSU_VARIANT: ${{ inputs.ksu_variant }}
           ABK_KSU_BRANCH: ${{ inputs.ksu_branch }}
           ABK_KSU_CUSTOM_REF: ${{ inputs.custom_ref }}
+          ABK_DROIDSPACES_COMMIT: ${{ env.DROIDSPACES_COMMIT }}
         shell: bash
         run: |
           set -uo pipefail
@@ -6917,6 +6927,7 @@ jobs:
             echo "ksu_variant=$ABK_KSU_VARIANT"
             echo "ksu_branch=$ABK_KSU_BRANCH"
             echo "ksu_custom_ref=$ABK_KSU_CUSTOM_REF"
+            echo "droidspaces_commit=${ABK_DROIDSPACES_COMMIT:-off}"
             echo "android_version=${{ inputs.android_version }}"
             echo "kernel_version=${{ inputs.kernel_version }}"
             echo "sub_level=${{ inputs.sub_level }}"
