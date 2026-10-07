@@ -4271,14 +4271,6 @@ jobs:
           }
           mkdir -p common/certs
           install -m 0644 "$cert" common/certs/TB323FU-043-stock-gki-module-signing.pem
-          build_signing_key="$RUNNER_TEMP/TB323FU-043-build-module-signing.key"
-          build_signing_cert="$RUNNER_TEMP/TB323FU-043-build-module-signing-cert.pem"
-          openssl req -new -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
-            -subj "/CN=ABK TB323FU build/" \
-            -keyout "$build_signing_key" -out "$build_signing_cert"
-          cat "$build_signing_key" "$build_signing_cert" > common/certs/TB323FU-043-build-module-signing.pem
-          chmod 0600 common/certs/TB323FU-043-build-module-signing.pem
-          install -m 0644 "$build_signing_cert" common/certs/TB323FU-043-build-module-signing-cert.pem
           sed -i.bak \
             -e '/^CONFIG_MODULE_SIG_KEY=/d' \
             -e '/^# CONFIG_MODULE_SIG_KEY is not set$/d' \
@@ -4287,13 +4279,13 @@ jobs:
             "$DEFCONFIG"
           rm -f "$DEFCONFIG.bak"
           printf '%s\n' \
-            'CONFIG_MODULE_SIG_KEY="certs/TB323FU-043-build-module-signing.pem"' \
+            'CONFIG_MODULE_SIG_KEY="certs/signing_key.pem"' \
             'CONFIG_SYSTEM_TRUSTED_KEYS="certs/TB323FU-043-stock-gki-module-signing.pem"' >> "$DEFCONFIG"
-          grep -qF 'CONFIG_MODULE_SIG_KEY="certs/TB323FU-043-build-module-signing.pem"' "$DEFCONFIG"
+          grep -qF 'CONFIG_MODULE_SIG_KEY="certs/signing_key.pem"' "$DEFCONFIG"
           grep -qF 'CONFIG_SYSTEM_TRUSTED_KEYS="certs/TB323FU-043-stock-gki-module-signing.pem"' "$DEFCONFIG"
           echo "Trusted stock TB323FU GKI signer certificate: $cert_sha"
           echo "Stock signer certificate SHA-256: $cert_sha" >> "$GITHUB_STEP_SUMMARY"
-          echo "Generated per-run module signer certificate for rust_binder.ko."
+          echo "Kleaf will provide its declared certs/signing_key.pem module signer output."
 
       - name: 配置 KPM 超级密码
         if: inputs.use_kpm && inputs.kpm_password != '' && (inputs.ksu_variant == 'SukiSU' || inputs.ksu_variant == 'ReSukiSU')
@@ -6992,7 +6984,6 @@ jobs:
           fi
           module_root="$GITHUB_WORKSPACE/system-dlkm-modules"
           stock_cert="$GITHUB_WORKSPACE/.github/certs/TB323FU-043-stock-gki-module-signing.pem"
-          module_signing_cert="$KERNEL_ROOT/common/certs/TB323FU-043-build-module-signing-cert.pem"
           if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
             dist_dir="${ABK_KERNEL_DIST:?Canoe dist directory was not set}"
             final_image="$dist_dir/Image"
@@ -7018,6 +7009,28 @@ jobs:
           }
           tar -xOzf "$module_archive" "${binder_entries[0]}" > "$module_root/rust_binder.ko"
 
+          module_signing_cert="$RUNNER_TEMP/TB323FU-043-build-module-signing-cert.pem"
+          signer_cert_der="$RUNNER_TEMP/TB323FU-043-build-module-signing-cert.der"
+          if [ -s "$dist_dir/signing_key.x509" ]; then
+            cp "$dist_dir/signing_key.x509" "$signer_cert_der"
+          else
+            mapfile -t signer_cert_outputs < <(find "$KERNEL_ROOT/out" "$KERNEL_ROOT/bazel-bin" \
+              -type f -name signing_key.x509 -print 2>/dev/null | sort -u)
+            [ "${#signer_cert_outputs[@]}" -gt 0 ] || {
+              echo "::error::Kleaf did not materialize its declared signing_key.x509 output."; exit 1;
+            }
+            declare -A signer_cert_hashes=()
+            for cert_output in "${signer_cert_outputs[@]}"; do
+              digest="$(sha256sum "$cert_output" | awk '{print $1}')"
+              signer_cert_hashes["$digest"]="$cert_output"
+            done
+            [ "${#signer_cert_hashes[@]}" -eq 1 ] || {
+              echo "::error::Multiple distinct Kleaf signing_key.x509 outputs found."; exit 1;
+            }
+            for cert_output in "${signer_cert_hashes[@]}"; do cp "$cert_output" "$signer_cert_der"; done
+          fi
+          openssl x509 -inform DER -in "$signer_cert_der" -out "$module_signing_cert"
+
           copy_unique_metadata() {
             local name="$1" destination="$2"
             mapfile -t files < <(find "$KERNEL_ROOT/out" "$KERNEL_ROOT/bazel-bin" -type f -name "$name" -not -path '*/.git/*' -print 2>/dev/null | sort -u)
@@ -7040,7 +7053,7 @@ jobs:
           grep -qx 'CONFIG_MODULE_SIG=y' "$module_root/kernel.config"
           grep -qx 'CONFIG_MODULE_SIG_ALL=y' "$module_root/kernel.config"
           grep -qx 'CONFIG_MODULE_SIG_PROTECT=y' "$module_root/kernel.config"
-          grep -Fqx 'CONFIG_MODULE_SIG_KEY="certs/TB323FU-043-build-module-signing.pem"' "$module_root/kernel.config"
+          grep -Fqx 'CONFIG_MODULE_SIG_KEY="certs/signing_key.pem"' "$module_root/kernel.config"
           grep -Fqx 'CONFIG_SYSTEM_TRUSTED_KEYS="certs/TB323FU-043-stock-gki-module-signing.pem"' "$module_root/kernel.config"
           openssl x509 -in "$stock_cert" -outform DER -out "$RUNNER_TEMP/tb323fu-stock-gki.der"
           openssl x509 -in "$module_signing_cert" -outform DER -out "$RUNNER_TEMP/tb323fu-build-module-signer.der"
