@@ -6830,6 +6830,29 @@ jobs:
               strings "out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image" | grep 'Linux version'
             else
               # 提取 gki_defconfig 修改到 fragment，避免 bazel trim 检查失败
+              if [ "${{ inputs.source_mode }}" = "custom_git" ] && [ "${{ inputs.trust_tb323fu_stock_gki_modules }}" = "true" ]; then
+                python3 - "$DEFCONFIG" <<'PYBINDER'
+            import pathlib, re, sys
+
+            config = pathlib.Path(sys.argv[1])
+            kconfig = pathlib.Path("common/drivers/android/Kconfig")
+            if not re.search(r"(?m)^config ANDROID_BINDER_IPC_RUST\s*$", kconfig.read_text(encoding="utf-8")):
+                raise SystemExit("Pinned kernel source does not define CONFIG_ANDROID_BINDER_IPC_RUST")
+            required = {
+                "CONFIG_RUST": "y",
+                "CONFIG_MODULES": "y",
+                "CONFIG_ANDROID_BINDER_IPC": "y",
+                "CONFIG_ANDROID_BINDERFS": "y",
+                "CONFIG_ANDROID_BINDER_IPC_RUST": "m",
+            }
+            lines = config.read_text(encoding="utf-8").splitlines()
+            for symbol, value in required.items():
+                lines = [line for line in lines if not re.match(rf"^(?:{re.escape(symbol)}=|# {re.escape(symbol)} is not set$)", line)]
+                lines.append(f"{symbol}={value}")
+            config.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            print("Trusted TB323FU build explicitly requests rust_binder as a signed GKI module.")
+            PYBINDER
+              fi
               FRAG="common/arch/arm64/configs/ksu.fragment"
               diff "$DEFCONFIG.orig" "$DEFCONFIG" | grep '^>' | sed 's/^> //; s/^[[:space:]]*//' > "$FRAG" || true
               cp "$DEFCONFIG.orig" "$DEFCONFIG"
@@ -6972,6 +6995,10 @@ jobs:
           mkdir -p "$module_root"
           mapfile -t binder_entries < <(tar -tzf "$module_archive" | grep -E '(^|/)rust_binder[.]ko$' || true)
           [ "${#binder_entries[@]}" -eq 1 ] || {
+            echo "Binder-related entries in the final system_dlkm archive:"
+            tar -tzf "$module_archive" | grep -iE 'binder|modules[.]load' || true
+            echo "Effective Binder config outputs:"
+            find "$KERNEL_ROOT/out" "$KERNEL_ROOT/bazel-bin" -type f -name .config -exec grep -H -E '^CONFIG_(RUST|MODULES|ANDROID_BINDER_IPC|ANDROID_BINDERFS|ANDROID_BINDER_IPC_RUST)=' {} + 2>/dev/null | sort -u || true
             echo "::error::Expected exactly one rust_binder.ko in the final system_dlkm_staging_archive.tar.gz."; exit 1;
           }
           tar -xOzf "$module_archive" "${binder_entries[0]}" > "$module_root/rust_binder.ko"
