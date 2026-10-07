@@ -129,6 +129,10 @@ on:
         required: false
         type: boolean
         default: true
+      trust_tb323fu_stock_gki_modules:
+        required: false
+        type: boolean
+        default: false
       supp_op:
         required: false
         type: boolean
@@ -4195,7 +4199,7 @@ jobs:
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
       - name: Доверять штатным GKI-модулям TB323FU
-        if: inputs.custom_kernel_options == 'TB323FU043_STOCK_GKI_TRUST'
+        if: inputs.trust_tb323fu_stock_gki_modules || inputs.custom_kernel_options == 'TB323FU043_STOCK_GKI_TRUST'
         working-directory: ${{ env.KERNEL_ROOT }}
         env:
           SOURCE_MODE: ${{ inputs.source_mode }}
@@ -4249,11 +4253,14 @@ jobs:
           esac
           [ "$USE_ZRAM" = false ] && [ "$USE_BBG" = false ] && [ "$USE_DDK" = false ] \
             && [ "$USE_NTSYNC" = false ] && [ "$USE_NETWORKING" = false ] \
-            && [ "$USE_KPM" = false ] && [ "$USE_REKERNEL" = false ] \
-            && [ "$ENABLE_SUSFS" = false ] && [ -z "$CUSTOM_EXTERNAL_MODULES" ] \
-            && [ "$CUSTOM_KERNEL_OPTIONS" = TB323FU043_STOCK_GKI_TRUST ] || {
-              echo "::error::Disable optional features for the TB323FU trusted K0/K1 test."; exit 1;
+            && [ "$USE_REKERNEL" = false ] && [ -z "$CUSTOM_EXTERNAL_MODULES" ] || {
+              echo "::error::TB323FU trusted GKI builds do not allow ZRAM/BBG/DDK/NTsync/networking/Re-Kernel or external modules."; exit 1;
             }
+          if [ "$USE_KPM" = true ] || [ "$ENABLE_SUSFS" = true ]; then
+            [ "$KSU_VARIANT" = ReSukiSU ] || {
+              echo "::error::KPM and SUSFS with trusted TB323FU GKI modules require pinned ReSukiSU."; exit 1;
+            }
+          fi
           cert="$GITHUB_WORKSPACE/.github/certs/TB323FU-043-stock-gki-module-signing.pem"
           [ -s "$cert" ] && [ -s "$DEFCONFIG" ] || {
             echo "::error::Stock signer certificate or GKI defconfig is missing."; exit 1;
@@ -6825,6 +6832,10 @@ jobs:
               tools/bazel build --nobuild --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG "$BUILD_TARGET"
               echo "=== Bazel preflight passed; starting full build ==="
               tools/bazel build --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG "$BUILD_TARGET" || exit 1
+              if [ "${{ inputs.source_mode }}" = "custom_git" ] && [ "${{ inputs.trust_tb323fu_stock_gki_modules }}" = "true" ]; then
+                echo "=== Materializing dist outputs for the matched system_dlkm module ==="
+                tools/bazel run --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG "$BUILD_TARGET"
+              fi
               if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
                 echo "=== Materializing kernel dist directory ==="
                 tools/bazel run --disk_cache=/home/runner/.cache/bazel --config=fast $LTO_FLAG $FRAG_FLAG "$BUILD_TARGET"
@@ -6892,6 +6903,76 @@ jobs:
           rm -rf Image
           mv oImage Image
           rm -f "$image_backup"
+
+      - name: 导出匹配内核的 rust_binder.ko
+        if: inputs.source_mode == 'custom_git' && inputs.trust_tb323fu_stock_gki_modules
+        working-directory: ${{ env.KERNEL_ROOT }}
+        env:
+          SOURCE_COMMIT: ${{ inputs.source_commit }}
+          SOURCE_KERNEL_VERSION: ${{ inputs.source_full_kernel_version }}
+        run: |
+          set -euo pipefail
+          module_root="$GITHUB_WORKSPACE/system-dlkm-modules"
+          mkdir -p "$module_root"
+
+          mapfile -t candidates < <(find "$KERNEL_ROOT/out" "$KERNEL_ROOT/bazel-bin" "$KERNEL_ROOT/bazel-out" \
+            -type f -name rust_binder.ko -not -path '*/.git/*' -print 2>/dev/null | sort -u)
+          [ "${#candidates[@]}" -gt 0 ] || {
+            echo "::error::Build succeeded but did not export rust_binder.ko; refusing to publish a boot-only candidate."; exit 1;
+          }
+          declare -A hashes=()
+          selected=""
+          for module in "${candidates[@]}"; do
+            digest="$(sha256sum "$module" | awk '{print $1}')"
+            hashes["$digest"]="$module"
+            selected="$module"
+          done
+          [ "${#hashes[@]}" -eq 1 ] || {
+            echo "::error::Multiple different rust_binder.ko outputs found; refusing ambiguous system_dlkm artifact."; exit 1;
+          }
+          cp "$selected" "$module_root/rust_binder.ko"
+          copy_unique_metadata() {
+            local name="$1" destination="$2"
+            mapfile -t files < <(find "$KERNEL_ROOT/out" "$KERNEL_ROOT/bazel-bin" "$KERNEL_ROOT/bazel-out" \
+              -type f -name "$name" -not -path '*/.git/*' -print 2>/dev/null | sort -u)
+            [ "${#files[@]}" -gt 0 ] || return 1
+            declare -A file_hashes=()
+            for file in "${files[@]}"; do
+              digest="$(sha256sum "$file" | awk '{print $1}')"
+              file_hashes["$digest"]="$file"
+            done
+            [ "${#file_hashes[@]}" -eq 1 ] || {
+              echo "::error::Multiple different $name outputs found; refusing to pair unrelated module metadata."; return 1;
+            }
+            for file in "${file_hashes[@]}"; do cp "$file" "$destination"; done
+          }
+          copy_unique_metadata .config "$module_root/kernel.config"
+          copy_unique_metadata Module.symvers "$module_root/Module.symvers"
+          [ -s "$module_root/kernel.config" ] && [ -s "$module_root/Module.symvers" ] || {
+            echo "::error::Missing kernel config or Module.symvers metadata for rust_binder.ko."; exit 1;
+          }
+          grep -qx 'CONFIG_MODULE_SIG=y' "$module_root/kernel.config"
+          grep -qx 'CONFIG_MODULE_SIG_ALL=y' "$module_root/kernel.config"
+          grep -qx 'CONFIG_MODULE_SIG_PROTECT=y' "$module_root/kernel.config"
+          grep -Fqx 'CONFIG_SYSTEM_TRUSTED_KEYS="certs/TB323FU-043-stock-gki-module-signing.pem"' "$module_root/kernel.config"
+          command -v modinfo >/dev/null 2>&1 || {
+            echo "::error::modinfo is required to verify the rust_binder.ko signature."; exit 1;
+          }
+          module_signer="$(modinfo -F signer "$module_root/rust_binder.ko" 2>/dev/null || true)"
+          [ -n "$module_signer" ] || {
+            echo "::error::rust_binder.ko is unsigned; refusing to publish an unusable system_dlkm module."; exit 1;
+          }
+          printf 'source_commit=%s\nkernel_release=%s\nmodule_sha256=%s\nmodule_signer=%s\nstock_gki_signer_sha256=%s\n' \
+            "$SOURCE_COMMIT" "$SOURCE_KERNEL_VERSION" \
+            "$(sha256sum "$module_root/rust_binder.ko" | awk '{print $1}')" \
+            "$module_signer" 82831e1d21cb5ab7a69f76cbabcad4da12d3e95cab109764faab7fced5fd0d08 \
+            > "$module_root/BUILD_INFO.txt"
+          (
+            cd "$module_root"
+            sha256sum rust_binder.ko kernel.config Module.symvers BUILD_INFO.txt > SHA256SUMS
+          )
+          zip_name="${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-SystemDlkmModules.zip"
+          (cd "$module_root" && zip -9 "$GITHUB_WORKSPACE/$zip_name" rust_binder.ko kernel.config Module.symvers BUILD_INFO.txt SHA256SUMS)
 
       - name: Собрать ABI и данные воспроизводимости
         if: always()
@@ -7149,8 +7230,13 @@ jobs:
           if [ "${{ inputs.source_mode }}" = "custom_git" ]; then
             images_count=$(find . -maxdepth 1 -type f -name '*-Images.zip.bundle.zip' | wc -l)
             anykernel_count=$(find . -maxdepth 1 -type f -name '*-AnyKernel3.zip.bundle.zip' | wc -l)
-            if [ "$images_count" -ne 1 ] || [ "$anykernel_count" -ne 1 ]; then
-              echo "::error::Custom source 必须同时生成一个 Images bundle 和一个 AnyKernel3 bundle。"
+            modules_count=0
+            if [ "${{ inputs.trust_tb323fu_stock_gki_modules }}" = "true" ]; then
+              modules_count=$(find . -maxdepth 1 -type f -name '*-SystemDlkmModules.zip.bundle.zip' | wc -l)
+            fi
+            if [ "$images_count" -ne 1 ] || [ "$anykernel_count" -ne 1 ] \
+              || { [ "${{ inputs.trust_tb323fu_stock_gki_modules }}" = "true" ] && [ "$modules_count" -ne 1 ]; }; then
+              echo "::error::Custom source должен создать Images и AnyKernel3 bundles; при доверии stock GKI signer также обязателен SystemDlkmModules bundle."
               rm -f ./*.bundle.zip
               exit 1
             fi

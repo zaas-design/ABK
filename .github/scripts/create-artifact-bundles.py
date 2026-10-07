@@ -24,6 +24,8 @@ def artifact_type(name: str) -> str:
     lower = name.lower()
     if lower.endswith(".img"):
         return "KERNEL_IMG"
+    if lower.endswith("systemdlkmmodules.zip"):
+        return "SYSTEM_DLKM_MODULES"
     if "anykernel" in lower or "ak3" in lower:
         return "ANYKERNEL3"
     return "OTHER"
@@ -33,6 +35,8 @@ def payload_kind(name: str) -> str | None:
     lower = name.lower()
     if lower.endswith("images.zip"):
         return "KERNEL_IMAGE_SET"
+    if lower.endswith("systemdlkmmodules.zip"):
+        return "SYSTEM_DLKM_MODULES"
     if "anykernel" in lower or "ak3" in lower:
         return "ANYKERNEL3"
     return None
@@ -144,6 +148,8 @@ def iter_payloads(root: Path, custom_source: bool) -> list[Path]:
         if payload.suffix.lower() == ".img" or payload.name.endswith("AnyKernel3.zip"):
             payloads.append(payload)
         elif custom_source and payload.name.endswith("Images.zip"):
+            payloads.append(payload)
+        elif custom_source and payload.name.endswith("SystemDlkmModules.zip"):
             payloads.append(payload)
     return payloads
 
