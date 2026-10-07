@@ -659,7 +659,7 @@ jobs:
 
           disable_broken_chrome_source
           apt_update_retry
-          sudo apt-get install -y ccache python3 git curl build-essential libssl-dev bison flex libelf-dev dwarves
+          sudo apt-get install -y ccache python3 git curl build-essential libssl-dev bison flex libelf-dev dwarves lz4
 
       - name: 配置 ccache
         run: |
@@ -6912,32 +6912,32 @@ jobs:
         working-directory: ${{ env.KERNEL_ROOT }}
         env:
           SOURCE_COMMIT: ${{ inputs.source_commit }}
-          SOURCE_KERNEL_VERSION: ${{ inputs.source_full_kernel_version }}
         run: |
           set -euo pipefail
           module_root="$GITHUB_WORKSPACE/system-dlkm-modules"
+          stock_cert="$GITHUB_WORKSPACE/.github/certs/TB323FU-043-stock-gki-module-signing.pem"
+          if [ "${{ inputs.source_layout }}" = "kernel_platform" ]; then
+            dist_dir="${ABK_KERNEL_DIST:?Canoe dist directory was not set}"
+          else
+            dist_dir="$KERNEL_ROOT/bazel-bin/common/kernel_aarch64"
+          fi
+          module_archive="$dist_dir/system_dlkm_staging_archive.tar.gz"
+          [ -s "$module_archive" ] || {
+            echo "::error::The final dist system_dlkm_staging_archive.tar.gz is missing."; exit 1;
+          }
+          [ -s "$dist_dir/Image" ] && [ -s "$dist_dir/vmlinux" ] || {
+            echo "::error::Final dist Image or vmlinux is missing."; exit 1;
+          }
           mkdir -p "$module_root"
+          mapfile -t binder_entries < <(tar -tzf "$module_archive" | grep -E '(^|/)rust_binder[.]ko$' || true)
+          [ "${#binder_entries[@]}" -eq 1 ] || {
+            echo "::error::Expected exactly one rust_binder.ko in the final system_dlkm_staging_archive.tar.gz."; exit 1;
+          }
+          tar -xOzf "$module_archive" "${binder_entries[0]}" > "$module_root/rust_binder.ko"
 
-          mapfile -t candidates < <(find "$KERNEL_ROOT/out" "$KERNEL_ROOT/bazel-bin" "$KERNEL_ROOT/bazel-out" \
-            -type f -name rust_binder.ko -not -path '*/.git/*' -print 2>/dev/null | sort -u)
-          [ "${#candidates[@]}" -gt 0 ] || {
-            echo "::error::Build succeeded but did not export rust_binder.ko; refusing to publish a boot-only candidate."; exit 1;
-          }
-          declare -A hashes=()
-          selected=""
-          for module in "${candidates[@]}"; do
-            digest="$(sha256sum "$module" | awk '{print $1}')"
-            hashes["$digest"]="$module"
-            selected="$module"
-          done
-          [ "${#hashes[@]}" -eq 1 ] || {
-            echo "::error::Multiple different rust_binder.ko outputs found; refusing ambiguous system_dlkm artifact."; exit 1;
-          }
-          cp "$selected" "$module_root/rust_binder.ko"
           copy_unique_metadata() {
             local name="$1" destination="$2"
-            mapfile -t files < <(find "$KERNEL_ROOT/out" "$KERNEL_ROOT/bazel-bin" "$KERNEL_ROOT/bazel-out" \
-              -type f -name "$name" -not -path '*/.git/*' -print 2>/dev/null | sort -u)
+            mapfile -t files < <(find "$KERNEL_ROOT/out" "$KERNEL_ROOT/bazel-bin" -type f -name "$name" -not -path '*/.git/*' -print 2>/dev/null | sort -u)
             [ "${#files[@]}" -gt 0 ] || return 1
             declare -A file_hashes=()
             for file in "${files[@]}"; do
@@ -6958,6 +6958,21 @@ jobs:
           grep -qx 'CONFIG_MODULE_SIG_ALL=y' "$module_root/kernel.config"
           grep -qx 'CONFIG_MODULE_SIG_PROTECT=y' "$module_root/kernel.config"
           grep -Fqx 'CONFIG_SYSTEM_TRUSTED_KEYS="certs/TB323FU-043-stock-gki-module-signing.pem"' "$module_root/kernel.config"
+          openssl x509 -in "$stock_cert" -outform DER -out "$RUNNER_TEMP/tb323fu-stock-gki.der"
+          python3 - "$dist_dir/vmlinux" "$RUNNER_TEMP/tb323fu-stock-gki.der" <<'PYVERIFYCERT'
+          import sys
+          cert = open(sys.argv[2], "rb").read()
+          with open(sys.argv[1], "rb") as image:
+              overlap = b""
+              while chunk := image.read(1024 * 1024):
+                  data = overlap + chunk
+                  if cert in data:
+                      break
+                  overlap = data[-len(cert) + 1:]
+              else:
+                  raise SystemExit("Stock GKI signing certificate is absent from final vmlinux")
+          PYVERIFYCERT
+
           command -v modinfo >/dev/null 2>&1 || {
             echo "::error::modinfo is required to verify the rust_binder.ko signature."; exit 1;
           }
@@ -6965,8 +6980,34 @@ jobs:
           [ -n "$module_signer" ] || {
             echo "::error::rust_binder.ko is unsigned; refusing to publish an unusable system_dlkm module."; exit 1;
           }
-          printf 'source_commit=%s\nkernel_release=%s\nmodule_sha256=%s\nmodule_signer=%s\nstock_gki_signer_sha256=%s\n' \
-            "$SOURCE_COMMIT" "$SOURCE_KERNEL_VERSION" \
+          module_release="$(modinfo -F vermagic "$module_root/rust_binder.ko" | awk '{print $1}')"
+          kernel_release="$(strings -a "$dist_dir/Image" | sed -n 's/^Linux version \([^ ]*\).*/\1/p' | head -n1)"
+          [ -n "$kernel_release" ] && [ "$module_release" = "$kernel_release" ] || {
+            echo "::error::rust_binder.ko vermagic ($module_release) does not match final Image release ($kernel_release)."; exit 1;
+          }
+          python3 - "$module_root/rust_binder.ko" "$RUNNER_TEMP/rust_binder.payload" "$RUNNER_TEMP/rust_binder.p7s" <<'PYSIG'
+          import pathlib, struct, sys
+          module, payload, signature = map(pathlib.Path, sys.argv[1:])
+          data = module.read_bytes()
+          magic = b"~Module signature appended\n"
+          footer_size = 12
+          if not data.endswith(magic) or len(data) < len(magic) + footer_size:
+              raise SystemExit("rust_binder.ko has no valid Linux module signature footer")
+          footer_end = len(data) - len(magic)
+          footer = data[footer_end - footer_size:footer_end]
+          signature_size = struct.unpack(">I", footer[8:12])[0]
+          signature_start = footer_end - footer_size - signature_size
+          if signature_size == 0 or signature_start <= 0:
+              raise SystemExit("rust_binder.ko has an invalid signature length")
+          payload.write_bytes(data[:signature_start])
+          signature.write_bytes(data[signature_start:footer_end - footer_size])
+          PYSIG
+          openssl cms -verify -binary -inform DER -in "$RUNNER_TEMP/rust_binder.p7s" \
+            -content "$RUNNER_TEMP/rust_binder.payload" -certfile "$stock_cert" -nointern -noverify -out /dev/null
+
+          image_sha256="$(sha256sum "$dist_dir/Image" | awk '{print $1}')"
+          printf 'source_commit=%s\nkernel_release=%s\nimage_sha256=%s\nmodule_sha256=%s\nmodule_signer=%s\nstock_gki_signer_sha256=%s\n' \
+            "$SOURCE_COMMIT" "$kernel_release" "$image_sha256" \
             "$(sha256sum "$module_root/rust_binder.ko" | awk '{print $1}')" \
             "$module_signer" 82831e1d21cb5ab7a69f76cbabcad4da12d3e95cab109764faab7fced5fd0d08 \
             > "$module_root/BUILD_INFO.txt"
@@ -7123,17 +7164,23 @@ jobs:
           fi
 
           cp "$SRC_DIR/Image" ./bootimgs/
-          cp "$SRC_DIR/Image.lz4" ./bootimgs/
           cp "$SRC_DIR/Image" ./
-          cp "$SRC_DIR/Image.lz4" ./
           gzip -n -c -9 ./Image > ./Image.gz
+          lz4 -l -12 --favor-decSpeed -f ./Image ./Image.lz4
+          gzip -dc ./Image.gz | cmp - ./Image
+          lz4 -d -c ./Image.lz4 | cmp - ./Image
+          cp ./Image.lz4 ./bootimgs/Image.lz4
           cp ./Image.gz ./bootimgs/Image.gz
 
           if [ "${{ inputs.source_mode }}" = "custom_git" ]; then
+            kernel_release="$(strings -a ./Image | sed -n 's/^Linux version \([^ ]*\).*/\1/p' | head -n1)"
+            [ -n "$kernel_release" ] || { echo "::error::Could not read full kernel.release from final Image"; exit 1; }
+            image_sha256="$(sha256sum ./Image | awk '{print $1}')"
+            printf 'kernel_release=%s\nimage_sha256=%s\n' "$kernel_release" "$image_sha256" > ./bootimgs/BUILD_INFO.txt
             images_name="${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-Images.zip"
             (
               cd bootimgs
-              zip -9 "../$images_name" Image Image.lz4 Image.gz
+              zip -9 "../$images_name" Image Image.lz4 Image.gz BUILD_INFO.txt
             )
           fi
 
